@@ -46,19 +46,27 @@ class InvalidItemPathError(AngolaError): pass
 #------------------------------------------------------------------------------
 
 class QueryResult(object):
-    def __init__(self, cursor, pager):
+    def __init__(self, cursor, pager, data_mapper=None):
         self.cursor = cursor
         stats = cursor.statistics()
-
+        self.count = self.cursor.count()
         self.total_count = stats["fullCount"]
         self.pagination = lib.gen_pagination(total_count=self.total_count,
-                                            count=cursor.count(),
+                                            count=self.count,
                                             page=pager[0],
                                             per_page=pager[1])
 
+        def _default_data_mapper_cb(item): return item 
+    
+        self._data_mapper = _default_data_mapper_cb if not data_mapper else data_mapper
+
     def __iter__(self):
         for item in self.cursor:
-            yield item
+            yield self._data_mapper(item)
+
+    def __len__(self):
+        return self.total_count
+
 
 class Item_Impl(dict):
     NAMESPACE = None
@@ -849,7 +857,7 @@ class Database(object):
         """
         return self.aql.execute(query=query, bind_vars=bind_vars, *a, **kw)
 
-    def query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None) -> QueryResult:
+    def query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None, data_mapper=None) -> QueryResult:
         """
         XQL query  a collection based on filters
 
@@ -859,13 +867,13 @@ class Database(object):
             xql:lib_xql.XQLDEFINITION
             data:dict
             kvmap:dict
-
+            data_mapper:function - a callback function
         Returns
             tuple(cursor:ArangoCursor, pagination:dict)
         """
         aql, bind_vars, pager = self.build_query(xql=xql, data=data, kvmap=kvmap, parser=parser)
         cursor = self.execute_aql(aql, bind_vars=bind_vars, count=True, full_count=True)            
-        return QueryResult(cursor=cursor, pager=pager)
+        return QueryResult(cursor=cursor, pager=pager, data_mapper=data_mapper)
 
     def build_query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None):
         """
@@ -1069,8 +1077,9 @@ class Collection(object):
             "SKIP": skip,
             "TAKE": limit
         }
-        for item in self.db.query(xql):
-            yield self.item(item)
+
+        def data_mapper(item): return self.item(item)
+        return self.db.query(xql, data_mapper=data_mapper)
 
 
     def find_one(self, filters:dict):
@@ -1080,7 +1089,7 @@ class Collection(object):
         Returns
             CollectionItem
         """
-        if data := [self.find(filters=filters, limit=1)]:
+        if data := list(self.find(filters=filters, limit=1)):
             return data[0]
         return None
 
