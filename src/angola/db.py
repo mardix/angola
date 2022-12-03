@@ -67,7 +67,6 @@ class QueryResult(object):
     def __len__(self):
         return self.total_count
 
-
 class Item_Impl(dict):
     NAMESPACE = None
  
@@ -110,6 +109,7 @@ class Item_Impl(dict):
 
         path = self._make_path(path)
         self._update({path: value})
+        return self
 
     def len(self, path: str):
         """
@@ -294,10 +294,10 @@ class Item_Impl(dict):
         oplog = self._update({op: True})
         return oplog.get(op)
 
-    def datetime(self, path:str, value:Any=True):
-        op = "%s:$datetime" % self._make_path(path)
+    def currdate(self, path:str, value:Any=True):
+        op = "%s:$currdate" % self._make_path(path)
         oplog = self._update({op: value})
-        return oplog.get(op)        
+        return oplog.get(op)   
 
     def template(self, path:str, value:str):
         op = "%s:$template" % self._make_path(path)
@@ -309,14 +309,22 @@ class Item_Impl(dict):
         oplog = self._update({op: True})
         return oplog.get(op)
 
-    def update(self, data: dict, commit=False):
+    def update(self, data: dict) -> "Self":
         """
         UPDATE: Update the active CollectionItem
 
         Returns:
             CollectionItem
+
+        Example:
+            #item.update({k/v...})
+            #item.commit()
+
+            or 
+            #item.update({k/v...}).commit()
         """
         self._update(data)
+        return self
 
 class CollectionItem(Item_Impl):
     """
@@ -361,18 +369,36 @@ class CollectionItem(Item_Impl):
         self._immut_keys = immut_keys
 
     @contextmanager
-    def subcollection(self, name: str, constraints: list = None):
+    def context(self):
         """
-        *Context Manager
+        *ContextManager for CollectionItem
 
-        Select a subcollection and commit changes upon exit
+        Do transactional mutation and commit the changes upon exit
+
+        Yield:
+            CollectionItem
+
+        Example:
+            with item.context() as ctx:
+                ctx.update({"name": "Y"})
+
+        """
+        yield self 
+        self.commit()
+
+    @contextmanager
+    def context_subcollection(self, name: str, constraints: list = None):
+        """
+        *Context Manager for Subcollection
+
+        Do transactional mutation on subcollection and commit the changes upon exit
 
         Yield:
           SubCollection
 
         Example:
 
-        with $parent.subcollection('name') as sc:
+        with item.context_subcollection('name') as sc:
             sc.insert()
         
         """
@@ -382,7 +408,6 @@ class CollectionItem(Item_Impl):
 
     def select_subcollection(self, name: str, constraints: list = None):
         """
-        *Non Context Manager 
 
         Select a subcollection. When making changes, must use `commit` on parent
 
@@ -390,10 +415,18 @@ class CollectionItem(Item_Impl):
           SubCollection
 
         Example:
-            sc = $parent.select_subcollection()
+            sc = item.select_subcollection(name)
             sc.insert({...})
             sc.insert({...})
-            $parent.commit()
+            item.commit()
+
+            -- or with #context
+            with item.context() as ictx:
+                sc = item.select_subcollection(name)
+                sc.insert({...})
+                sc.insert({...})
+            
+            or refer to #context_subscollection
 
         """
         return SubCollection(item=self, name=name, custom_ops=self._custom_ops)
@@ -441,22 +474,14 @@ class CollectionItem(Item_Impl):
         self._subcollections[name] = data
         self.set("/subcollections", self._subcollections)
 
-    def save(self):
-        """
-        To commit the data when it's mutated outside.
-            doc = CollectionItem()
-            doc["xone"][1] = True
-            doc.save()
-        """
-        data = dict(self)
-        self._update(data)
-
-    def commit(self):
+    def commit(self) -> "Self":
+        """ To save """
         if not self._commiter:
             raise MissingCommitterCallbackError()
         data = self._commiter(self)
         if data:
             self._load(data)
+        return self
         
     def _update(self, mutations: dict):
         """
@@ -684,8 +709,7 @@ class SubCollectionItem(Item_Impl):
 
 class Database(object):
     """
-    Database
-    Source: ArangoDB
+    Angola Database
     """
 
     def __init__(self,
@@ -954,11 +978,20 @@ class Database(object):
 
 class Collection(object):
 
-    def __init__(self, db:"Database", collection,  immut_keys:list=[], custom_ops:dict={}):
+    def __init__(self, db:Database, collection,  immut_keys:list=[], custom_ops:dict={}):
         self.db = db
         self.collection = collection
         self._immut_keys = immut_keys
         self._custom_ops = custom_ops
+        self.collection_name = self.collection.name
+
+    def _commit(self, item:CollectionItem):
+        """
+        Save the item in the db
+        """
+        if not item._key:
+            raise MissingItemKeyError()
+        return self.collection.update(item.to_dict(), return_new=True)["new"]
 
     def __iter__(self):
         return self.find(filters={})
@@ -975,29 +1008,12 @@ class Collection(object):
                 return CollectionItem.new(data, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)               
         return CollectionItem(data, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)
 
-
-    def _commit(self, item:CollectionItem):
-        """
-        Save the item in the db
-        """
-        if not item._key:
-            raise MissingItemKeyError()
-        return self.collection.update(item.to_dict(), return_new=True)["new"]
-
-    @property
-    def name(self) -> str:
-        """
-        Returns the collection name
-        """
-        return self.collection.name
-
     def has(self, _key) -> bool: 
         """
-        
         Check if a collection has _key
 
         Args:
-            _key
+            _key:str
 
         Returns: 
             Bool
@@ -1015,47 +1031,70 @@ class Collection(object):
             return self.item(data)
         return None
 
-    def new_item(self, data:dict={}) -> CollectionItem:
+    def create(self, data:dict={}) -> CollectionItem:
         """
         To create a new Item without inserting in the collection
 
-        *Must use #item.commit() to save data
+        Requires #commit() to save data
 
         Returns:
             CollectionItem
+
+        Example:
+            item = coll.create({...})
+            item.commit()
         """
         return CollectionItem.new(data, commiter=self._commit, custom_ops=self._custom_ops)
 
-    def insert(self, data:dict, _key=None, return_item:bool=True) -> CollectionItem:
+    def insert(self, data:dict, _key=None) -> CollectionItem:
         """
-        To insert and commit a new item
-
+        To insert a new Item and commit in the collection
 
         Returns:
             CollectionItem
+
+        Example
+            item = coll.insert(...)
         """
         if _key or "_key" in data:
             _key = _key or data["_key"]
             if self.has(_key):
-                raise lib.ItemExistsError()
+                raise ItemExistsError()
             data["_key"] = _key
         item = data
         if not isinstance(data, CollectionItem):
             item = CollectionItem.new(data, custom_ops=self._custom_ops)
         self.collection.insert(item.to_dict(), silent=True)
-        if return_item:
-            return self.get(item._key) 
-        return None
+        return self.get(item._key) 
 
-    def update(self, _key:str, data:dict, return_item:bool=True) -> CollectionItem:
+    def update(self, _key:str, data:dict) -> CollectionItem:
         """
-        Save document data by _key
+        Update an item
+
+        Returns
+            CollectionItem
+
         """
         item = self.item({**data, "_key": _key})
         self._commit(item)  
-        if return_item:
-            return self.get(item._key) 
-        return None
+        return self.get(item._key) 
+
+    def upsert(self, data:dict) -> CollectionItem:
+        """
+        To update or insert data.
+
+        Args:
+            data:dict
+
+        Return:
+            CollectionItem
+        """
+
+        if "_key" in data:
+            if self.has(data["_key"]):
+                _key = data.pop("_key")
+                return self.update(_key=_key, data=data)
+        return self.insert(data)
 
     def delete(self, _key):
         """
@@ -1081,7 +1120,6 @@ class Collection(object):
         def data_mapper(item): return self.item(item)
         return self.db.query(xql, data_mapper=data_mapper)
 
-
     def find_one(self, filters:dict):
         """
         Retrieve one item based on the criteria
@@ -1097,31 +1135,12 @@ class Collection(object):
 
 def _create_document_item(data:dict={}) -> dict:
     _key = data["_key"] if "_key" in data else lib.gen_key()
-    ts = lib.get_datetime()
 
     return {
         **data,
         "_key": _key,
-        "_created_at": ts,
+        "_created_at:$currdate": True,
         "_modified_at": None
-    }
-
-
-def _parse_row(row: dict) -> dict:
-    """
-    Convert a result row to dict, by merging _json with the rest of the columns
-
-    Params:
-        row: dict
-
-    Returns
-        dict
-    """
-    row = row.copy()
-    _json = lib.json_loads(row.pop("_json")) if "_json" in row else {}
-    return {
-        **row,  # ensure columns exists
-        **_json
     }
 
 
