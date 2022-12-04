@@ -1102,7 +1102,7 @@ class Collection(object):
         """
         self.collection.delete(_key)
 
-    def find(self, filters:dict, skip=None, limit=None):
+    def find(self, filters:dict, skip=None, limit=None, sort=None):
         """
         Perform a find in the collections
 
@@ -1114,20 +1114,21 @@ class Collection(object):
             "FROM": self.name, 
             "FILTER": filters,
             "SKIP": skip,
-            "TAKE": limit
+            "TAKE": limit,
+            "SORT": sort
         }
 
         def data_mapper(item): return self.item(item)
         return self.db.query(xql, data_mapper=data_mapper)
 
-    def find_one(self, filters:dict):
+    def find_one(self, filters:dict, sort=None):
         """
         Retrieve one item based on the criteria
 
         Returns
             CollectionItem
         """
-        if data := list(self.find(filters=filters, limit=1)):
+        if data := list(self.find(filters=filters, limit=1, sort=None)):
             return data[0]
         return None
 
