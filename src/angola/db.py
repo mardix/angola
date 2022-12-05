@@ -1111,7 +1111,7 @@ class Collection(object):
         """
 
         xql = {
-            "FROM": self.name, 
+            "FROM": self.collection_name, 
             "FILTER": filters,
             "SKIP": skip,
             "TAKE": limit,
