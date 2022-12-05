@@ -4,7 +4,7 @@
 
 import copy 
 from typing import Any, List
-from arango import ArangoClient
+from arango import ArangoClient, DocumentUpdateError
 from contextlib import contextmanager
 from . import lib, lib_xql, dict_mutator, dict_query
 
@@ -991,7 +991,12 @@ class Collection(object):
         """
         if not item._key:
             raise MissingItemKeyError()
-        return self.collection.update(item.to_dict(), return_new=True)["new"]
+        try:
+            return self.collection.update(item.to_dict(), return_new=True)["new"]
+        except DocumentUpdateError as due:
+            return self.collection.insert(item.to_dict(), return_new=True)["new"]
+
+
 
     def __iter__(self):
         return self.find(filters={})

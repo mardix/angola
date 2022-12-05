@@ -5,7 +5,7 @@ def long_description():
     with open('README.md', 'r') as file:
         return file.read()
 
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 setuptools.setup(
     name='angola',
     version=VERSION,
