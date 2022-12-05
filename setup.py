@@ -5,7 +5,7 @@ def long_description():
     with open('README.md', 'r') as file:
         return file.read()
 
-VERSION = "0.1.8"
+VERSION = "0.1.9"
 setuptools.setup(
     name='angola',
     version=VERSION,
@@ -25,7 +25,7 @@ setuptools.setup(
         "Jinja2 >= 3.0",
         "python-slugify",
         "arrow",
-        "ulid",
+        "ulid-py",
         "python-arango"
     ],
     packages=['angola'],
