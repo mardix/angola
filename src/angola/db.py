@@ -994,7 +994,8 @@ class Collection(object):
         try:
             return self.collection.update(item.to_dict(), return_new=True)["new"]
         except DocumentUpdateError as due:
-            return self.collection.insert({**item.to_dict(), "_modified_at:$currdate": True}, return_new=True)["new"]
+            item.currdate('_modified_at')
+            return self.collection.insert(item.to_dict(), return_new=True)["new"]
 
 
 
