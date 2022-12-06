@@ -765,7 +765,7 @@ class Database(object):
             bool
         """
         _dbname = dbname or self.dbname
-        sys_db = self.use_db("_system")
+        sys_db = self.select_db("_system")
         return sys_db.db.has_database(_dbname)
 
     def create_db(self, dbname:str=None) -> "Database":
@@ -778,7 +778,7 @@ class Database(object):
             Database
         """
         _dbname = dbname or self.dbname
-        sys_db = self.use_db("_system")
+        sys_db = self.select_db("_system")
         if not sys_db.db.has_database(_dbname):
             sys_db.db.create_database(_dbname)
         return self.select_db(_dbname)
