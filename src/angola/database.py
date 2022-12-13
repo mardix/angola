@@ -1331,11 +1331,14 @@ class Collection(object):
             return data[0]
         return None
 
-    def link(self, collection:"Collection") -> tuple:
+    def edges_with(self, collection:"Collection") -> tuple:
         """
         ::GRAPH::
 
-        Create an Edge Collection Definition
+        Create an Edge Collection Definition, especially when building a traversal
+
+        ie:
+        relations = [CollectionA.edges_with(CollectionB)]
 
         Returns
             tuple(name, edge_name, from_collection_name, to_collection_name)
