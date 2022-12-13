@@ -2,7 +2,5 @@
 # -- Angola --
 # ------------------------------------------------------------------------------
 
-from .db import Database as db, AngolaError
+from .database import Database as db, CollectionItem, CollectionItemActiveItem
 from arango.exceptions import ArangoError
-
-

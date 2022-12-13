@@ -4,7 +4,8 @@
 
 import copy 
 from typing import Any, List
-from arango import ArangoClient, DocumentUpdateError
+from arango import ArangoClient
+from arango.exceptions import ArangoError, DocumentUpdateError
 from contextlib import contextmanager
 from . import lib, lib_xql, dict_mutator, dict_query
 
@@ -44,6 +45,51 @@ class MissingItemKeyError(AngolaError): pass
 class InvalidItemPathError(AngolaError): pass 
 
 #------------------------------------------------------------------------------
+
+class CollectionItemActiveItem(object):
+    """
+    CollectionItemActiveItem
+
+    Usage:
+
+      class User(CollectionItemActiveItem):
+        def full_name(self):
+            return "%s %s" % (self._item.get("first_name), self._item.get("last_name"))
+            
+      coll = #db.select_collection(..., item_class=User)
+
+
+      class User2(CollectionItemActiveItem):
+        def __init__(self, *a, **kw):
+            pass
+        def full_name(self):
+            return "%s %s" % (self._item.get("first_name), self._item.get("last_name"))
+            
+      i_U = User2()
+
+      coll = #db.select_collection(..., item_class=i_U)
+
+      item = coll.get(_key)
+
+      item.full_name()
+
+
+    """
+    _item = None
+
+    def __init__(self, _item, *a, **kw):
+        self._item = _item
+
+
+    def __call__(self, _item=None, *a, **kw):
+        i = copy.deepcopy(self)
+        i._item = _item
+        return i
+
+    def __getattr__(self, __name: str, *a, **kw):
+      return self._item.__getattribute__(__name, *a, **kw)
+
+
 
 class QueryResult(object):
     def __init__(self, cursor, pager, data_mapper=None):
@@ -343,13 +389,14 @@ class CollectionItem(Item_Impl):
     _immut_keys = []
 
     @classmethod
-    def new(cls, data:dict, immut_keys:list=[], commiter=None, custom_ops:dict={}):
-      return cls(data=_create_document_item(data), immut_keys=immut_keys, commiter=commiter, custom_ops=custom_ops)
+    def new(cls, data:dict, immut_keys:list=[], db=None, collection=None, commiter=None, custom_ops:dict={}):
+      return cls(data=_create_document_item(data), db=db, collection=collection, immut_keys=immut_keys, commiter=commiter, custom_ops=custom_ops)
 
-    def __init__(self, data: dict, immut_keys:list=[], load_parser=None, commiter=None, custom_ops:dict={}):
+    def __init__(self, data: dict, db=None, collection=None, immut_keys:list=[], load_parser=None, commiter=None, custom_ops:dict={}):
         if "_key" not in data:
             raise MissingItemKeyError()
-        
+        self._db = db
+        self._collection = collection
         self._load_parser = load_parser
         self._commiter = commiter
         self._immut_keys = immut_keys
@@ -517,6 +564,17 @@ class CollectionItem(Item_Impl):
         for _ in list(self.keys()):
             if _ in self:
                 del self[_]
+
+    def link(self, to_item:"CollectionItem", data={}, edge_collection_name=None):
+        """
+        ::Graph::
+
+        Create a graph link between this item and to_item
+        """
+        return self._db.link_edges(from_item=self, to_item=to_item, data=data, edge_collection_name=edge_collection_name)
+
+    def traverse(self, collection:"Collection", relations:list("Collection")=None, direction="outbound"): 
+        return self._db.traverse(from_item=self, collection=collection, relations=relations, direction=direction)
 
 class SubCollection(object):
     _data = []
@@ -807,7 +865,7 @@ class Database(object):
         """
         return self.db.has_collection(collection_name)
 
-    def select_collection(self, collection_name, indexes=None, immut_keys=None, user_defined=True) -> "Collection":
+    def select_collection(self, collection_name:str, indexes=None, immut_keys=None, user_defined=True, active_item_class=None) -> "Collection":
         """
         To select a collection
 
@@ -833,7 +891,13 @@ class Database(object):
                 for index in [*indexes, *DEFAULT_INDEXES]:
                     col._add_index(index) 
 
-        return Collection(db=self, collection=col, immut_keys=immut_keys, custom_ops=self._custom_ops)
+        return Collection(db=self, collection=col, immut_keys=immut_keys, custom_ops=self._custom_ops, active_item_class=active_item_class)
+
+    def select_edge_collection(self, collection_name:str):
+        if self.db.has_collection(collection_name):
+            return self.db.collection(collection_name)
+        else:
+            return self.db.create_collection(name=collection_name, edge=True)
 
     def get_item(self, path:str) -> CollectionItem:
         """
@@ -976,14 +1040,142 @@ class Database(object):
         col = self.db.collection(collection_name)
         col.delete_index(id, ignore_missing=True)
 
+    def link_edges(self, from_item:"CollectionItem", to_item:"CollectionItem", data:dict={}, edge_collection_name:str=None):
+        """
+        GRAPH
+        Link edges of 2 collections from:to
+
+        Params:
+            - from_item:CollectionItem
+            - to_item:CollectionItem
+            - data:dict
+            - edge_collection_name:str
+        """
+        from_coll_name = from_item._collection.name
+        to_coll_name = to_item._collection.name
+
+        if not edge_collection_name and from_coll_name and to_coll_name:
+            edge_collection_name = "edges__%s--%s" % (from_coll_name, to_coll_name)
+        if not edge_collection_name:
+            raise Exception("MISSING EDGE COLLECTION NAME")
+
+        coll = self.select_edge_collection(edge_collection_name)
+
+        # ensuring _id and _key are not included
+        if data:
+            for k in ["_id", "_key"]:
+                if k in data:
+                    data.pop(k)
+        doc = {
+            **data,
+            "_from": "%s/%s" % (from_coll_name, from_item._key),
+            "_to": "%s/%s" % (to_coll_name, to_item._key)
+        }
+
+        # update edge if exists, otherwise insert
+        edge = list(coll.find({"_from": doc["_from"], "_to": doc["_to"]}, limit=1))
+        if edge:
+            return coll.update({**data, "_id": edge[0]["_id"]})
+        else:
+            return coll.insert(doc)
+
+    def unlink_edges(self, from_item:"CollectionItem", to_item:"CollectionItem"):
+        pass
+
+    def _load_item(self, data:dict) -> "CollectionItem":
+        if "_id" in data:
+            collection_name, _key = data.get("_id").split("/")
+            col = self.db.collection(collection_name)
+            return Collection(db=self, collection=col, custom_ops=self._custom_ops).item(data)
+        else:
+            raise Exception("INVALID_ITEM__MUST_HAVE_ID")
+
+    def traverse(self, from_item:"CollectionItem", collection:"Collection", relations:list("Collection")=None, direction="outbound", filters={}):
+        """
+        == GRAPH == 
+        To traverse 
+
+        Params:
+            - from_item:CollectionItem - The item to traverse from
+            - collection: Collection
+            - relations:list[Collection.link]
+
+        Example:
+            item = $coll.get("_key")
+            traversial = $coll.traverse(from_item=item, collection=$collectionInstance2)
+            for e in traversial:
+                item_, second_item = e
+
+            #== Advanced, 4 depth. # the deeper relation the more the data
+            item = $coll.get("_key")
+            relations = [ $collInstance2.link($collInstance3), $collInstance3.link($collInstance4)]
+            traversial = $coll.traverse(from_item=item, collection=$collectionInstance2)
+            for e in traversial:
+                item_, second_item, third_item, fourth_item = e
+            
+
+
+        AQL:
+            FOR v, e, p in 2..3 OUTBOUND "test_country/01gm1g1wed20nf0d835m8k963k" 
+            GRAPH "graph__edges__test_country--test_region--test_region--test_city"
+            FILTER p.vertices[1].name == "SC"
+            RETURN p
+        """
+
+        _key = from_item._key
+
+        if not collection:
+            raise Exception("Missing")
+
+        min_depth = 1
+        defs = []
+        edge_name = "edges__%s" % from_item._collection.name
+        edge_name += "--%s" % collection.collection_name
+        defs.append({
+            "edge_collection": _create_edge_name(from_name=from_item._collection.name, to_name=collection.collection_name),
+            "from_vertex_collections": [from_item._collection.name],
+            "to_vertex_collections": [collection.collection_name]
+        })    
+
+        # Add more relations
+        if relations:
+            min_depth += len(relations)
+            for collection_def in relations:
+                edge_name += "--%s" % collection_def[0]
+                defs.append({
+                    "edge_collection": collection_def[1],
+                    "from_vertex_collections": [collection_def[2]],
+                    "to_vertex_collections": [collection_def[3]]
+                })
+
+        graph_name = "graph__%s" % edge_name
+        start_vertex = "%s/%s" % (from_item._collection.name, _key)
+
+        if self.db.has_graph(graph_name):
+            graph = self.db.graph(graph_name)
+        else:
+            graph = self.db.create_graph(name=graph_name, edge_definitions=defs)
+
+        for trav in graph.traverse(start_vertex=start_vertex,
+                                    direction=direction,
+                                    strategy='bfs',
+                                    edge_uniqueness='global',
+                                    vertex_uniqueness='global',
+                                    min_depth=min_depth, 
+                                    )["paths"]:
+                
+                yield tuple(self._load_item(item) for item in trav["vertices"])
+
+
 class Collection(object):
 
-    def __init__(self, db:Database, collection,  immut_keys:list=[], custom_ops:dict={}):
+    def __init__(self, db:Database, collection,  immut_keys:list=[], custom_ops:dict={}, active_item_class=None):
         self.db = db
         self.collection = collection
         self._immut_keys = immut_keys
         self._custom_ops = custom_ops
         self.collection_name = self.collection.name
+        self.active_item_class = active_item_class
 
     def _commit(self, item:CollectionItem):
         """
@@ -997,8 +1189,6 @@ class Collection(object):
             item.currdate('_modified_at')
             return self.collection.insert(item.to_dict(), return_new=True)["new"]
 
-
-
     def __iter__(self):
         return self.find(filters={})
 
@@ -1009,10 +1199,13 @@ class Collection(object):
         Returns:
             CollectionItem
         """
-        if not isinstance(data, CollectionItem):
-            if "_key" not in data:
-                return CollectionItem.new(data, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)               
-        return CollectionItem(data, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)
+        item = None
+        if not isinstance(data, CollectionItem) and "_key" not in data:
+            item = CollectionItem.new(data, db=self.db, collection=self.collection, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)               
+        else:
+            item = CollectionItem(data, db=self.db, collection=self.collection, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)
+
+        return self.active_item_class(item) if item and self.active_item_class else item
 
     def has(self, _key) -> bool: 
         """
@@ -1050,7 +1243,7 @@ class Collection(object):
             item = coll.create({...})
             item.commit()
         """
-        return CollectionItem.new(data, commiter=self._commit, custom_ops=self._custom_ops)
+        return CollectionItem.new(data, db=self.db, collection=self.collection, commiter=self._commit, custom_ops=self._custom_ops)
 
     def insert(self, data:dict, _key=None) -> CollectionItem:
         """
@@ -1069,7 +1262,7 @@ class Collection(object):
             data["_key"] = _key
         item = data
         if not isinstance(data, CollectionItem):
-            item = CollectionItem.new(data, custom_ops=self._custom_ops)
+            item = CollectionItem.new(data, db=self.db, collection=self.collection, custom_ops=self._custom_ops)
         self.collection.insert(item.to_dict(), silent=True)
         return self.get(item._key) 
 
@@ -1108,7 +1301,7 @@ class Collection(object):
         """
         self.collection.delete(_key)
 
-    def find(self, filters:dict, skip=None, limit=None, sort=None):
+    def find(self, filters:dict={}, skip=None, limit=None, sort=None):
         """
         Perform a find in the collections
 
@@ -1138,7 +1331,23 @@ class Collection(object):
             return data[0]
         return None
 
+    def link(self, collection:"Collection") -> tuple:
+        """
+        ::GRAPH::
+
+        Create an Edge Collection Definition
+
+        Returns
+            tuple(name, edge_name, from_collection_name, to_collection_name)
+        """
+        edge_name = _create_edge_name(from_name=self.collection_name, to_name=collection.collection_name)
+        name = "%s--%s" % (self.collection_name, collection.collection_name)
+        return (name, edge_name, self.collection_name, collection.collection_name)
+
 #------------------------------------------------------------------------------
+
+def _create_edge_name(from_name, to_name):
+    return "edges__%s--%s" % (from_name, to_name)
 
 def _create_document_item(data:dict={}) -> dict:
     _key = data["_key"] if "_key" in data else lib.gen_key()
