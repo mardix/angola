@@ -1301,14 +1301,16 @@ class Collection(object):
         """
         self.collection.delete(_key)
 
-    def find(self, filters:dict={}, skip=None, limit=None, sort=None):
+    def find(self, filters:dict={}, skip=None, limit=10, sort=None, page=None):
         """
         Perform a find in the collections
 
         Returns
             Generator[CollectionItem]
         """
-
+        if skip is None and page:
+            skip = lib.calc_pagination_offset(page=page, per_page=limit)
+            
         xql = {
             "FROM": self.collection_name, 
             "FILTER": filters,
