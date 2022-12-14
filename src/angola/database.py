@@ -1308,9 +1308,10 @@ class Collection(object):
         Returns
             Generator[CollectionItem]
         """
+        
         if skip is None and page:
             skip = lib.calc_pagination_offset(page=page, per_page=limit)
-            
+
         xql = {
             "FROM": self.collection_name, 
             "FILTER": filters,
