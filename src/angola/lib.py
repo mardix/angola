@@ -551,7 +551,7 @@ def gen_pagination(total_count: int, count: int, page: int, per_page: int) -> di
     Returns: dict
         - page:int - The current page
         - per_page:int - total items per page
-        - total_count:int - total items
+        - count:int - total items
         - page_count:int - the current count for the page
         - page_showing_start:int|None - data start, ie: showing *1 to 10
         - page_showing_end:int|None - data end, ie: showing 1 to *10
@@ -583,7 +583,7 @@ def gen_pagination(total_count: int, count: int, page: int, per_page: int) -> di
     return {
         "page": page,
         "per_page": per_page,
-        "total_count": total_count,
+        "count": total_count,
         "total_pages": total_pages,
         "has_prev": has_prev,
         "prev_page": page - 1 if has_prev else None,

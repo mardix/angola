@@ -95,10 +95,10 @@ class QueryResult(object):
     def __init__(self, cursor, pager, data_mapper=None):
         self.cursor = cursor
         stats = cursor.statistics()
-        self.count = self.cursor.count()
-        self.total_count = stats["fullCount"]
-        self.pagination = lib.gen_pagination(total_count=self.total_count,
-                                            count=self.count,
+        current_count = self.cursor.count()
+        self.count = stats["fullCount"]
+        self.pagination = lib.gen_pagination(total_count=self.count,
+                                            count=current_count,
                                             page=pager[0],
                                             per_page=pager[1])
 
@@ -111,7 +111,7 @@ class QueryResult(object):
             yield self._data_mapper(item)
 
     def __len__(self):
-        return self.total_count
+        return self.count
 
 class Item_Impl(dict):
     NAMESPACE = None
@@ -449,7 +449,7 @@ class CollectionItem(Item_Impl):
             sc.insert()
         
         """
-        sc = SubCollection(item=self, name=name, custom_ops=self._custom_ops)
+        sc = SubCollection(item=self, name=name, custom_ops=self._custom_ops, constraints=constraints)
         yield sc
         self.commit()
 
@@ -476,7 +476,7 @@ class CollectionItem(Item_Impl):
             or refer to #context_subscollection
 
         """
-        return SubCollection(item=self, name=name, custom_ops=self._custom_ops)
+        return SubCollection(item=self, name=name, custom_ops=self._custom_ops, constraints=constraints)
 
     def get_item(self, path:str) -> "SubCollectionItem":
         """
@@ -678,8 +678,9 @@ class SubCollection(object):
             self._commit()
 
         elif upsert:
-            self.add(mutations)
+            self.insert(mutations)
   
+
     def delete(self, filters: dict):
         """
         Delete documents based on filters
@@ -700,7 +701,6 @@ class SubCollection(object):
         Returns: SubCollectionItem
         """
         return self.find_one({"_key": _key})
-
 
     def find_one(self, filters:dict={}):
         """
@@ -778,6 +778,7 @@ class Database(object):
                  client:"Database"= None, 
                  default_indexes:dict={},
                  query_max_limit=100,
+                 collection_prefix:str=None,
                  custom_ops:dict={}):
         """
         
@@ -789,6 +790,7 @@ class Database(object):
             client:Database
             default_indexes:dict
             query_max_limit
+            collection_prefix:str - a prefix to add in all collection name
             custom_ops:dict - 
         
         """
@@ -801,6 +803,7 @@ class Database(object):
         self.default_indexes = default_indexes
         self.query_max_limit = query_max_limit
         self._custom_ops = custom_ops
+        self._collection_prefix = collection_prefix
 
         if not self.client:
             self.client = ArangoClient(hosts=hosts, serializer=lib.json_ext.dumps, deserializer=lib.json_ext.loads)
@@ -811,6 +814,11 @@ class Database(object):
     @property
     def aql(self):
         return self.db.aql
+
+    def _prefix_collection_name(self, collection_name:str) -> str:
+        if self._collection_prefix:
+            collection_name = "%s%s" % (self._collection_prefix, collection_name)
+        return collection_name
 
     def has_db(self, dbname:str=None) -> bool:
         """
@@ -863,6 +871,7 @@ class Database(object):
         Returns:
             bool
         """
+        collection_name = self._prefix_collection_name(collection_name)
         return self.db.has_collection(collection_name)
 
     def select_collection(self, collection_name:str, indexes=None, immut_keys=None, user_defined=True, active_item_class=None) -> "Collection":
@@ -878,7 +887,7 @@ class Database(object):
             Collection
 
         """
-
+        collection_name = self._prefix_collection_name(collection_name)
         if self.has_collection(collection_name):
             col = self.db.collection(collection_name)
         else:
@@ -894,6 +903,7 @@ class Database(object):
         return Collection(db=self, collection=col, immut_keys=immut_keys, custom_ops=self._custom_ops, active_item_class=active_item_class)
 
     def select_edge_collection(self, collection_name:str):
+        collection_name = self._prefix_collection_name(collection_name)
         if self.db.has_collection(collection_name):
             return self.db.collection(collection_name)
         else:
@@ -925,15 +935,18 @@ class Database(object):
         if len_paths < 2 or len_paths > 4:
             raise InvalidItemPathError()
 
-        if len_paths == 2: # item -> [coll/key]
-            return self.select_collection(paths[0]).get(paths[1])
-        elif len_paths == 3: # item's subcolelction -> [coll/key/subcoll]
-            return self.select_collection(paths[0]).get(paths[1]).select_subcollection(paths[2])
-        elif len_paths == 4: # item's subcollection items -> [coll/key/subcoll/subkey]
-            return self.select_collection(paths[0])\
-                .get(paths[1])\
-                .select_subcollection(paths[2])\
-                .get(paths[3])
+        try:
+            if len_paths == 2: # item -> [coll/key]
+                return self.select_collection(self._prefix_collection_name(paths[0])).get(paths[1])
+            elif len_paths == 3: # item's subcolelction -> [coll/key/subcoll]
+                return self.select_collection(self._prefix_collection_name(paths[0])).get(paths[1]).select_subcollection(paths[2])
+            elif len_paths == 4: # item's subcollection items -> [coll/key/subcoll/subkey]
+                return self.select_collection(self._prefix_collection_name(paths[0]))\
+                    .get(paths[1])\
+                    .select_subcollection(paths[2])\
+                    .get(paths[3])
+        except Exception as e:
+            return None
 
     def execute_aql(self, query:str, bind_vars:dict={}, *a, **kw):
         """ 
@@ -1004,12 +1017,16 @@ class Database(object):
         Rename collection
         """
         if self.has(collection_name) and not self.has(new_name):
+            collection_name = self._prefix_collection_name(collection_name)
+            new_name = self._prefix_collection_name(new_name)
             coll = self.select(collection_name)
             coll.rename(new_name)
             return self.select(new_name)
     
     def drop_collection(self, collection_name:str):
-        if self.has(collection_name):
+        
+        if self.has_collection(collection_name):
+            collection_name = self._prefix_collection_name(collection_name)
             self.db.delete_collection(collection_name)
 
     def add_index(self, collection_name, data:dict):
@@ -1026,6 +1043,7 @@ class Database(object):
                         "inBackground": False # bool - Do not hold the collection lock
                     }
         """
+        collection_name = self._prefix_collection_name(collection_name)
         col = self.db.collection(collection_name)
         col._add_index(data)
       
@@ -1037,6 +1055,7 @@ class Database(object):
             - collection, the collection name
             - id: the index id
         """
+        collection_name = self._prefix_collection_name(collection_name)
         col = self.db.collection(collection_name)
         col.delete_index(id, ignore_missing=True)
 
@@ -1085,6 +1104,7 @@ class Database(object):
     def _load_item(self, data:dict) -> "CollectionItem":
         if "_id" in data:
             collection_name, _key = data.get("_id").split("/")
+            collection_name = self._prefix_collection_name(collection_name)
             col = self.db.collection(collection_name)
             return Collection(db=self, collection=col, custom_ops=self._custom_ops).item(data)
         else:
