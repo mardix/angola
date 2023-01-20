@@ -409,7 +409,7 @@ class CollectionItem(Item_Impl):
     def to_dict(self):
         data = dict(self)
         if self._subcollections:
-            data["/subcollections"] = self._subcollections
+            data["__subcollections"] = self._subcollections
         return data 
 
     def set_immut_keys(self, immut_keys:list=[]):
@@ -512,14 +512,14 @@ class CollectionItem(Item_Impl):
         try:
             if name in self._subcollections:
                 del self._subcollections[name]
-            self.set("/subcollections", self._subcollections)
+            self.set("__subcollections", self._subcollections)
         except KeyError as _:
             pass
         return True
 
     def _set_subcollection(self, name:str, data:Any):
         self._subcollections[name] = data
-        self.set("/subcollections", self._subcollections)
+        self.set("__subcollections", self._subcollections)
 
     def commit(self) -> "Self":
         """ To save """
@@ -552,8 +552,8 @@ class CollectionItem(Item_Impl):
           item = self._load_parser(item)
 
         self._subcollections = {}
-        if "/subcollections" in item:
-            self._subcollections = item.pop("/subcollections") or {}
+        if "__subcollections" in item:
+            self._subcollections = item.pop("__subcollections") or {}
 
         if "_key" in item:
             self._key = item.get("_key")
