@@ -209,9 +209,34 @@ class Item_Impl(dict):
         path = self._make_path(path)
         self._update({"%s:$unset" % path: True})
 
+    def rename(self, path: str, value:str):
+        """ 
+        RENAME: Rename a property by key/DotNotation and return the value
+
+        Params:
+            path:str - The source
+            value:str - the target value
+
+        Returns:
+            Any: the value that was removed
+        """
+        path = self._make_path(path)
+        self._update({"%s:$rename" % path: value})
+
+    def copy(self, path: str, value:str):
+        """ 
+        COPY: Copy a property by key/DotNotation and return the value
+
+        Params:
+            path:str - The source
+            value:str - the target value
+        """
+        path = self._make_path(path)
+        self._update({"%s:$copy" % path: value})
+
     def xadd(self, path: str, values):
         """
-        LADD: Add *values if they don't exist yet
+        XADD: Add *values if they don't exist yet
 
         Params:
             path:str - the dotnotation path
@@ -224,7 +249,7 @@ class Item_Impl(dict):
 
     def xadd_many(self, path: str, *values: List[Any]):
         """
-        LADD: Add *values if they don't exist yet
+        XADD: Add *values if they don't exist yet
 
         Params:
             path:str - the dotnotation path
@@ -237,7 +262,7 @@ class Item_Impl(dict):
 
     def xrem(self, path: str, values):
         """
-        LREM: Remove items from a list
+        XREM: Remove items from a list
 
         Params:
             path:str - the dotnotation path
@@ -251,7 +276,7 @@ class Item_Impl(dict):
 
     def xrem_many(self, path: str, *values: List[Any]):
         """
-        LREM: Remove items from a list
+        XREM: Remove items from a list
 
         Params:
             path:str - the dotnotation path
@@ -265,7 +290,7 @@ class Item_Impl(dict):
 
     def xpush(self, path: str, values: Any):
         """
-        LPUSH: push item to the right of list. 
+        XPUSH: push item to the right of list. 
 
         Params:
             path:str - the dotnotation path
@@ -278,7 +303,7 @@ class Item_Impl(dict):
 
     def xpush_many(self, path: str, *values: List[Any]):
         """
-        LPUSH: push item to the right of list. 
+        XPUSH_MANY: push item to the right of list. 
 
         Params:
             path:str - the dotnotation path
@@ -291,7 +316,7 @@ class Item_Impl(dict):
 
     def xpushl(self, path: str, values: Any):
         """
-        LPUSH: push item to the right of list. 
+        XPUSHL: push item to the right of list. 
 
         Params:
             path:str - the dotnotation path

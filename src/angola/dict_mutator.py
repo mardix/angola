@@ -92,9 +92,12 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
         tuple(updated_data:_FlattenDictType, oplog)
 
     Operators:
+        $set - to set a literal k/v
         $incr - to increase an INT value
         $decr - to decrease an INT value
         $unset - To remove a property
+        $rename - To rename a property
+        $copy - To copy the value of property to another one
         $currdate - gen the current datetime. Can manipulate time
         $template - Evalute the string as template
         $uuid4 - gen a UUID4 string, without the dashes
@@ -112,9 +115,11 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
         
     Example
         {
-           "key:$incr": True|1,
-           "key:$decr": True|1,
+           "key:$incr": True|1|Num,
+           "key:$decr": True|1|Num,
            "some.key:$unset": True,
+           "some.key:$rename: "new_path",
+           "some.key:$copy: "new_path",
            "some.list:$xadd": Any,
            "some.list:$xadd_many": [Any, Any, Any, ...],
            "some.list:$xrem": Any,
@@ -186,7 +191,7 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
                 continue 
             
             # post-process data. To be parsed later
-            if op in ["template", "xlen"]:
+            if op in ["template", "xlen", "rename", "copy"]:
                 postproc[oppath] = value 
                 continue 
 
@@ -206,6 +211,7 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
                 _ = (value if isinstance(value, int) else 1) * -1
                 value = _get_int_data(data, path) + _
                 oplog[oplog_path] = value
+
 
             # $unset
             elif op == "unset":
@@ -229,7 +235,7 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
 
             # $uuid4
             elif op == "uuid4":
-                value = str(uuid.uuid4())
+                value = str(uuid.uuid4()).replace("-", "")
 
 
             # LIST operators
@@ -324,7 +330,18 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
                     # $xlen
                     elif op == "xlen" and value:
                         v = _get(data, value)
-                        data[path] = len(v) if v else 0
+                        try:
+                            data[path] = len(v) if v else 0
+                        except:
+                            data[path] = 0
+
+                    # $rename
+                    elif op == "rename" and value:
+                        data[value] = _pop(data, path)
+
+                    # $copy
+                    elif op == "copy" and value:
+                        data[value] = _get(data, path)
 
                     # custom ops
                     elif op in custom_ops:
