@@ -794,12 +794,13 @@ class Database(object):
     """
     Angola Database
     """
+    SYSTEM_DB = "_system"
 
     def __init__(self,
                  hosts:str=None,
                  username:str="root",
                  password:str=None, 
-                 dbname: str = "_system", 
+                 dbname: str = SYSTEM_DB, 
                  client:"Database"= None, 
                  default_indexes:dict={},
                  query_max_limit=100,
@@ -824,7 +825,7 @@ class Database(object):
         self.username = username
         self.password = password
         self.db = None
-        self.dbname = dbname
+        self.dbname = dbname or self.SYSTEM_DB # fallback to _system_db
         self.default_indexes = default_indexes
         self.query_max_limit = query_max_limit
         self._custom_ops = custom_ops
@@ -874,21 +875,30 @@ class Database(object):
             sys_db.db.create_database(_dbname)
         return self.select_db(_dbname)
 
-    def select_db(self, dbname:str) -> "Database":
+    def select_db(self, dbname:str, collection_prefix:str=None, default_indexes:dict=None) -> "Database":
         """
         Select a different DB using the same connection
 
         Params:
             dbname:str - The dbname to check
+            collection_prefix
+            default_indexes
         Returns: 
             Database
-
         """
-        return Database(client=self.client, dbname=dbname, username=self.username, password=self.password, custom_ops=self._custom_ops)
+        return Database(client=self.client, 
+                        dbname=dbname, 
+                        username=self.username, 
+                        password=self.password, 
+                        collection_prefix=collection_prefix or self._collection_prefix, 
+                        custom_ops=self._custom_ops, 
+                        default_indexes=default_indexes or self.default_indexes,
+                        query_max_limit=self.query_max_limit)
 
     def has_collection(self, collection_name) -> bool:
         """
-        Test if collection exists in the current db
+        Test if collection exists in the current db. 
+        *Must pass with the prefix, if needed
 
         Params:
             collection_name:str - the collection name 
@@ -896,7 +906,6 @@ class Database(object):
         Returns:
             bool
         """
-        collection_name = self._prefix_collection_name(collection_name)
         return self.db.has_collection(collection_name)
 
     def select_collection(self, collection_name:str, indexes=None, immut_keys=None, user_defined=True, active_item_class=None) -> "Collection":
@@ -912,6 +921,7 @@ class Database(object):
             Collection
 
         """
+
         collection_name = self._prefix_collection_name(collection_name)
         if self.has_collection(collection_name):
             col = self.db.collection(collection_name)
@@ -1049,9 +1059,8 @@ class Database(object):
             return self.select(new_name)
     
     def drop_collection(self, collection_name:str):
-        
+        collection_name = self._prefix_collection_name(collection_name)
         if self.has_collection(collection_name):
-            collection_name = self._prefix_collection_name(collection_name)
             self.db.delete_collection(collection_name)
 
     def add_index(self, collection_name, data:dict):

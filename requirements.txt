@@ -1,5 +1,5 @@
-Jinja2 >= 3.0
-python-slugify
 arrow
-ulid-py 
+python3-xid
 python-arango
+python-slugify
+Jinja2 >= 3.0

@@ -6,7 +6,7 @@ import os
 import re
 import sys
 import json
-import ulid
+import xid
 import math
 import uuid
 import time
@@ -33,13 +33,18 @@ def collection_name_valid(name):
     return bool(pattern.match(name)) 
 
 
+def gen_xid() -> str:
+    """
+    Return XID. 26 Chars
+    """
+    return str(xid.Xid())
+
 def gen_key() -> str:
     """
-    Returns ULID. 26 chars
+    Return XID. 26 Chars
     """
-    return str(ulid.new()).lower()
-
-
+    return gen_xid()
+    
 def gen_uuid() -> str:
     """
     Return a UUID4 key. 32 chars
