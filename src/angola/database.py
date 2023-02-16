@@ -76,8 +76,6 @@ class CollectionItemClass(object):
     def __getattr__(self, __name: str, *a, **kw):
       return self._item.__getattribute__(__name, *a, **kw)
 
-
-
 class QueryResult(object):
     def __init__(self, cursor, pager, data_mapper=None):
         self.cursor = cursor
@@ -427,7 +425,6 @@ class CollectionItem(Item_Impl):
     def set_immut_keys(self, immut_keys:list=[]):
         self._immut_keys = immut_keys
 
-
     @contextmanager
     def context(self):
         """
@@ -519,7 +516,7 @@ class CollectionItem(Item_Impl):
     @property
     def subcollections(self) -> list:
         """ List all collections """
-        return list(self._subcollections.keys()) or []
+        return list(self._subcollections.keys())
 
     def drop_subcollection(self, name: str):
         try:
@@ -736,7 +733,7 @@ class SubCollection(object):
         """
         return self.find_one({"_key": _key})
 
-    def find_one(self, filters:dict={}):
+    def find_one(self, filters:dict={}) -> "SubCollectionItem":
         """
         Return only one item by criteria
 
@@ -1019,11 +1016,11 @@ class Database(object):
         Returns
             tuple(cursor:ArangoCursor, pagination:dict)
         """
-        aql, bind_vars, pager = self.build_query(xql=xql, data=data, kvmap=kvmap, parser=parser)
+        aql, bind_vars, pager = self._build_query(xql=xql, data=data, kvmap=kvmap, parser=parser)
         cursor = self.execute_aql(aql, bind_vars=bind_vars, count=True, full_count=True)            
         return QueryResult(cursor=cursor, pager=pager, data_mapper=data_mapper)
 
-    def build_query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None):
+    def _build_query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None):
         """
         Build a query from XQL
 
