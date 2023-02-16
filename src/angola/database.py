@@ -24,7 +24,7 @@ DEFAULT_INDEXES = [
     {
         "type": "ttl",
         "fields": ["__ttl"],
-        "name": "idx_ttl__0",
+        "name": "idx__ttl__0",
         "expireAfter": 0
     }
 ]
@@ -46,33 +46,20 @@ class InvalidItemPathError(AngolaError): pass
 
 #------------------------------------------------------------------------------
 
-class CollectionItemActiveItem(object):
+class CollectionItemClass(object):
     """
-    CollectionItemActiveItem
+    CollectionItemClass
 
     Usage:
 
-      class User(CollectionItemActiveItem):
+      class User(CollectionItemClass):
         def full_name(self):
-            return "%s %s" % (self._item.get("first_name), self._item.get("last_name"))
+            return "%s %s" % (self.get("first_name), self.get("last_name"))
             
       coll = #db.select_collection(..., item_class=User)
 
-
-      class User2(CollectionItemActiveItem):
-        def __init__(self, *a, **kw):
-            pass
-        def full_name(self):
-            return "%s %s" % (self._item.get("first_name), self._item.get("last_name"))
-            
-      i_U = User2()
-
-      coll = #db.select_collection(..., item_class=i_U)
-
-      item = coll.get(_key)
-
-      item.full_name()
-
+      if item := coll.get(_key):
+        print(item.full_name())
 
     """
     _item = None
@@ -440,6 +427,7 @@ class CollectionItem(Item_Impl):
     def set_immut_keys(self, immut_keys:list=[]):
         self._immut_keys = immut_keys
 
+
     @contextmanager
     def context(self):
         """
@@ -600,6 +588,27 @@ class CollectionItem(Item_Impl):
 
     def traverse(self, collection:"Collection", relations:list("Collection")=None, direction="outbound"): 
         return self._db.traverse(from_item=self, collection=collection, relations=relations, direction=direction)
+
+    def set_ttl(self, nattime:str) -> "Self":
+        """
+        To set a time to live on an item
+        ie: 
+            item.set_ttl("2days")
+
+            to reset the ttl
+                item.set_ttl(False)
+
+        Params:
+            - nattime:str - Natural time - ie 1hour, 60seconds
+
+        Returns:
+            self
+        """
+        if isinstance(nattime, str):
+            self.update({"__ttl:$currdate": nattime})
+        elif nattime is False:
+            self.update({"__ttl": None})
+        return self
 
 class SubCollection(object):
     _data = []
@@ -816,7 +825,7 @@ class Database(object):
             client:Database
             default_indexes:dict
             query_max_limit
-            collection_prefix:str - a prefix to add in all collection name
+            collection_prefix:str|function - a prefix to add in all collection name
             custom_ops:dict - 
         
         """
@@ -843,7 +852,10 @@ class Database(object):
 
     def _prefix_collection_name(self, collection_name:str) -> str:
         if self._collection_prefix:
-            collection_name = "%s%s" % (self._collection_prefix, collection_name)
+            if isinstance(self._collection_prefix, str):
+                collection_name = "%s%s" % (self._collection_prefix, collection_name)
+            elif callable(self._collection_prefix):
+                collection_name = self._collection_prefix(collection_name)
         return collection_name
 
     def has_db(self, dbname:str=None) -> bool:
@@ -908,7 +920,7 @@ class Database(object):
         """
         return self.db.has_collection(collection_name)
 
-    def select_collection(self, collection_name:str, indexes=None, immut_keys=None, user_defined=True, active_item_class=None) -> "Collection":
+    def select_collection(self, collection_name:str, indexes=None, immut_keys=None, user_defined=True, item_class=None) -> "Collection":
         """
         To select a collection
 
@@ -931,11 +943,11 @@ class Database(object):
                 indexes = self.default_indexes
             
             # indexes
-            if isinstance(indexes, list) and indexes:
+            if indexes and isinstance(indexes, list):
                 for index in [*indexes, *DEFAULT_INDEXES]:
                     col._add_index(index) 
 
-        return Collection(db=self, collection=col, immut_keys=immut_keys, custom_ops=self._custom_ops, active_item_class=active_item_class)
+        return Collection(db=self, collection=col, immut_keys=immut_keys, custom_ops=self._custom_ops, item_class=item_class)
 
     def select_edge_collection(self, collection_name:str):
         collection_name = self._prefix_collection_name(collection_name)
@@ -1223,13 +1235,13 @@ class Database(object):
 
 class Collection(object):
 
-    def __init__(self, db:Database, collection,  immut_keys:list=[], custom_ops:dict={}, active_item_class=None):
+    def __init__(self, db:Database, collection,  immut_keys:list=[], custom_ops:dict={}, item_class=None):
         self.db = db
         self.collection = collection
         self._immut_keys = immut_keys
         self._custom_ops = custom_ops
         self.collection_name = self.collection.name
-        self.active_item_class = active_item_class
+        self.item_class = item_class
 
     def _commit(self, item:CollectionItem):
         """
@@ -1238,9 +1250,10 @@ class Collection(object):
         if not item._key:
             raise MissingItemKeyError()
         try:
+            item.currdate('_modified_at')
             return self.collection.update(item.to_dict(), return_new=True)["new"]
         except DocumentUpdateError as due:
-            item.currdate('_modified_at')
+            item.update({"_modified_at": None})
             return self.collection.insert(item.to_dict(), return_new=True)["new"]
 
     def __iter__(self):
@@ -1259,7 +1272,7 @@ class Collection(object):
         else:
             item = CollectionItem(data, db=self.db, collection=self.collection, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)
 
-        return self.active_item_class(item) if item and self.active_item_class else item
+        return self.item_class(item) if item and self.item_class else item
 
     def has(self, _key) -> bool: 
         """
