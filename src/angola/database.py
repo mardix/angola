@@ -607,6 +607,14 @@ class CollectionItem(Item_Impl):
             self.update({"__ttl": None})
         return self
 
+    def delete(self) -> bool:
+        """
+        To delete an item
+        Todo: deleted links/edges
+        """
+        self._collection.delete(self._key)
+        return True
+
 class SubCollection(object):
     _data = []
     _constraints = []
@@ -794,6 +802,10 @@ class SubCollectionItem(Item_Impl):
         self._key = data.get("_key")
         super().__init__(data)
 
+    def delete(self):
+        self._subcollection.delete({"_key": self._key})
+        return True
+        
 #------------------------------------------------------------------------------
 
 class Database(object):
@@ -1014,7 +1026,7 @@ class Database(object):
             kvmap:dict
             data_mapper:function - a callback function
         Returns
-            tuple(cursor:ArangoCursor, pagination:dict)
+            QueryResult
         """
         aql, bind_vars, pager = self._build_query(xql=xql, data=data, kvmap=kvmap, parser=parser)
         cursor = self.execute_aql(aql, bind_vars=bind_vars, count=True, full_count=True)            
