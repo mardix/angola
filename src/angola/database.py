@@ -919,7 +919,6 @@ class Database(object):
     def has_collection(self, collection_name) -> bool:
         """
         Test if collection exists in the current db. 
-        *Must pass with the prefix, if needed
 
         Params:
             collection_name:str - the collection name 
@@ -927,6 +926,7 @@ class Database(object):
         Returns:
             bool
         """
+        collection_name = self._prefix_collection_name(collection_name)
         return self.db.has_collection(collection_name)
 
     def select_collection(self, collection_name:str, indexes=None, immut_keys=None, user_defined=True, item_class=None) -> "Collection":
@@ -943,10 +943,11 @@ class Database(object):
 
         """
 
-        collection_name = self._prefix_collection_name(collection_name)
         if self.has_collection(collection_name):
+            collection_name = self._prefix_collection_name(collection_name)
             col = self.db.collection(collection_name)
         else:
+            collection_name = self._prefix_collection_name(collection_name)
             col = self.db.create_collection(collection_name)
             if not indexes and user_defined is True and self.default_indexes:
                 indexes = self.default_indexes
@@ -959,10 +960,11 @@ class Database(object):
         return Collection(db=self, collection=col, immut_keys=immut_keys, custom_ops=self._custom_ops, item_class=item_class)
 
     def select_edge_collection(self, collection_name:str):
-        collection_name = self._prefix_collection_name(collection_name)
         if self.db.has_collection(collection_name):
+            collection_name = self._prefix_collection_name(collection_name)
             return self.db.collection(collection_name)
         else:
+            collection_name = self._prefix_collection_name(collection_name)
             return self.db.create_collection(name=collection_name, edge=True)
 
     def get_item(self, path:str) -> CollectionItem:
@@ -1080,8 +1082,8 @@ class Database(object):
             return self.select(new_name)
     
     def drop_collection(self, collection_name:str):
-        collection_name = self._prefix_collection_name(collection_name)
         if self.has_collection(collection_name):
+            collection_name = self._prefix_collection_name(collection_name)
             self.db.delete_collection(collection_name)
 
     def add_index(self, collection_name, data:dict):
