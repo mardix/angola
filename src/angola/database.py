@@ -1030,6 +1030,7 @@ class Database(object):
         Returns
             QueryResult
         """
+
         aql, bind_vars, pager = self._build_query(xql=xql, data=data, kvmap=kvmap, parser=parser)
         cursor = self.execute_aql(aql, bind_vars=bind_vars, count=True, full_count=True)            
         return QueryResult(cursor=cursor, pager=pager, data_mapper=data_mapper)
@@ -1046,7 +1047,7 @@ class Database(object):
         """        
         xql = lib_xql.prepare_xql(xql)
         # replace the kvmap
-        xql["FILTER"] = lib.dict_find_replace(xql["FILTER"], kvmap)
+        xql["FILTERS"] = lib.dict_find_replace(xql["FILTERS"], kvmap)
 
         # pagination
         if "page" in data:
@@ -1392,7 +1393,7 @@ class Collection(object):
 
         xql = {
             "FROM": self.collection_name, 
-            "FILTER": filters,
+            "FILTERS": filters,
             "SKIP": skip,
             "TAKE": limit,
             "SORT": sort

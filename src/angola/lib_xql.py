@@ -193,7 +193,7 @@ def _parse_filter_row(k, value, propkey):
 
 def aql_filter_builder(filters: dict, propkey: str) -> tuple:
     """
-    Create a FILTER clause
+    Create a FILTERS clause
 
     Params:
         filter: dict
@@ -264,7 +264,7 @@ def prepare_xql(xql: dict) -> dict:
         "FROM": None,
         "ON": None,
         "AS": "doc__",
-        "FILTER": {},
+        "FILTERS": {},
         "SORT": None,
         "SKIP": None,
         "COUNT_AS": None,
@@ -310,7 +310,7 @@ class XQLDEFINITION:
 
         :param FROM: str = the collection name
         :param AS: str = alias
-        :param FILTER: dict = filters
+        :param FILTERS: dict = filters
         :param SORT: list/str = sort 
         :param SKIP: int = the offset of the limit, default=0
         :param TAKE: int = the limit of result, default=10
@@ -326,7 +326,7 @@ class XQLDEFINITION:
     """
     FROM: str = None
     AS: str = None
-    FILTER: dict = {}
+    FILTERS: dict = {}
     SORT: list = []
     SKIP: int = 0
     TAKE: int = 10
@@ -351,7 +351,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         parser:
             type: function
         vars:
-            type: dict - Variables for FILTER and FILTER_WHEN
+            type: dict - Variables for FILTERS and FILTER_WHEN
 
     Returns:
         tuple(AQL:string, BIND_VARS:dict)
@@ -360,7 +360,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     XQL Schema Definition:
         FROM: str = the collection name
         AS: str = alias
-        FILTER: dict = filters
+        FILTERS: dict = filters
         SORT: list/str = sort 
         SKIP: int = the offset of the limit, default=0
         TAKE: int = the limit of result, default=10
@@ -382,14 +382,14 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     schema example:
         FROM: collection
         AS: alias1
-        FILTER:
+        FILTERS:
             x:y
             "z:$gt": 5
         SORT: name:desc
         JOIN:
             FROM: collection2
             AS: c2
-            FILTER:
+            FILTERS:
                 d: "#alias1.d"
             TAKE: 5
             PAGE: 2
@@ -405,7 +405,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         q = {
             "FROM": "job_posts",
             "AS": "post",
-            "FILTER": {
+            "FILTERS": {
                 "a": "b",
                 "c:$gt": 5
             },
@@ -416,7 +416,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
                 {
                     "AS": "app",
                     "FROM": "application",
-                    "FILTER": {
+                    "FILTERS": {
                         "a": "b",
                         "c": "d",
                         "d": "#job.v_d"
@@ -424,7 +424,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
                     "JOIN": [        {
                         "AS": "J_loco",
                         "FROM": "bam",
-                        "FILTER": {
+                        "FILTERS": {
                             "a": "b",
                             "c": "d",
                             "d": "#app.v_d"
@@ -434,7 +434,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
                 {
                     "FROM": "loco",
                     "AS": "bam",
-                    "FILTER": {
+                    "FILTERS": {
                         "a": "b",
                         "c": "d",
                         "d": "#app.v_d"
@@ -455,7 +455,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         xql = parser(xql)
 
     COLLECTION = xql.get("FROM")
-    FILTERS = xql.get("FILTER") or {}
+    FILTERS = xql.get("FILTERS") or {}
     SORTS = xql.get("SORT")
     SKIP = xql.get("SKIP")
     TAKE = xql.get("TAKE") or 10
