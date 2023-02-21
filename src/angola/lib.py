@@ -543,12 +543,12 @@ def calc_pagination_offset(page: int, per_page: int) -> int:
     return 0 if page < 1 else (page - 1) * per_page
 
 
-def gen_pagination(total_count: int, count: int, page: int, per_page: int) -> dict:
+def gen_pagination(size: int, count: int, page: int, per_page: int) -> dict:
     """
     Create pagination data based on some basic info
 
     Args:
-        - total_count:int - The total items
+        - size:int - The total items
         - count:int - the current count for the subset
         - page:int - the current page
         - per_page:int - total items per page
@@ -556,8 +556,8 @@ def gen_pagination(total_count: int, count: int, page: int, per_page: int) -> di
     Returns: dict
         - page:int - The current page
         - per_page:int - total items per page
-        - count:int - total items
-        - page_count:int - the current count for the page
+        - size:int - total items
+        - count:int - the current count for the page
         - page_showing_start:int|None - data start, ie: showing *1 to 10
         - page_showing_end:int|None - data end, ie: showing 1 to *10
         - total_pages:int - total pages
@@ -570,7 +570,7 @@ def gen_pagination(total_count: int, count: int, page: int, per_page: int) -> di
     per_page = int(round(per_page))
     if per_page < 1:
         per_page = 10
-    total_pages = math.ceil(total_count / per_page)
+    total_pages = math.ceil(size / per_page)
     page = int(round(page))
     if page < 1:
         page = 1
@@ -588,14 +588,14 @@ def gen_pagination(total_count: int, count: int, page: int, per_page: int) -> di
     return {
         "page": page,
         "per_page": per_page,
-        "count": total_count,
+        "count": count,
+        "size": size,
         "total_pages": total_pages,
         "has_prev": has_prev,
         "prev_page": page - 1 if has_prev else None,
         "has_next": has_next,
         "next_page": page + 1 if has_next else None,
         "last_page": total_pages,
-        "page_count": count,
         "page_showing_start": page_showing_start,
         "page_showing_end": page_showing_end
     }

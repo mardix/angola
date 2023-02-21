@@ -80,10 +80,11 @@ class QueryResult(object):
     def __init__(self, cursor, pager, data_mapper=None):
         self.cursor = cursor
         stats = cursor.statistics()
-        current_count = self.cursor.count()
-        self.count = stats["fullCount"]
-        self.pagination = lib.gen_pagination(total_count=self.count,
-                                            count=current_count,
+        self.count = self.cursor.count() # current count
+        self.size = stats["fullCount"] # total count
+        self.pagination = lib.gen_pagination(
+                                            size=self.size,
+                                            count=self.count,
                                             page=pager[0],
                                             per_page=pager[1])
 
@@ -96,7 +97,9 @@ class QueryResult(object):
             yield self._data_mapper(item)
 
     def __len__(self):
-        return self.count
+        """Get the total count """
+        return self.size
+
 
 class Item_Impl(dict):
     NAMESPACE = None
