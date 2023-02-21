@@ -752,7 +752,7 @@ class SubCollection(object):
             return list(res)[0]
         return None 
 
-    def find(self, filters: dict = {}, sorts: dict = {}, limit: int = 10, skip: int = 0) -> dict_query.Cursor:
+    def find(self, filters: dict = {}, sorts: dict = {}, limit: int = 10,  offset:int=0) -> dict_query.Cursor:
         """
         Perform a query
 
@@ -760,11 +760,11 @@ class SubCollection(object):
             filters:
             sorts:
             limit:
-            skip:
+            offset:
         """
         sorts = _parse_sort_dict(sorts, False)
         data = [SubCollectionItem(self, d) for d in dict_query.query(data=self._data, filters=filters)]
-        return dict_query.Cursor(data, sort=sorts, limit=limit, skip=skip)
+        return dict_query.Cursor(data, sort=sorts, limit=limit, offset=offset)
 
     def filter(self, filters: dict = {}) -> dict_query.Cursor:
         """
@@ -1053,9 +1053,9 @@ class Database(object):
         if "page" in data:
             xql["PAGE"] = data.get("page") or 1
             del data["page"]
-        if "take" in data:
-            xql["TAKE"] = data.get("take") or 10
-            del data["take"]
+        if "limit" in data:
+            xql["LIMIT"] = data.get("limit") or 10
+            del data["limit"]
 
         _per_page, _, _page = lib_xql.xql_take_skip_page(xql=xql, max_limit=self.query_max_limit)
         aql, bind_vars = lib_xql.xql_to_aql(xql, vars=data, parser=parser, max_limit=self.query_max_limit)
@@ -1380,7 +1380,7 @@ class Collection(object):
         """
         self.collection.delete(_key)
 
-    def find(self, filters:dict={}, skip=None, limit=10, sort=None, page=None):
+    def find(self, filters:dict={}, offset=None, limit=10, sort=None, page=None):
         """
         Perform a find in the collections
 
@@ -1388,14 +1388,15 @@ class Collection(object):
             Generator[CollectionItem]
         """
         
-        if skip is None and page:
-            skip = lib.calc_pagination_offset(page=page, per_page=limit)
+
+        if offset is None and page:
+            offset = lib.calc_pagination_offset(page=page, per_page=limit)
 
         xql = {
             "FROM": self.collection_name, 
             "FILTERS": filters,
-            "SKIP": skip,
-            "TAKE": limit,
+            "OFFSET": offset,
+            "LIMIT": limit,
             "SORT": sort
         }
 

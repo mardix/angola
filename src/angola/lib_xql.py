@@ -266,9 +266,9 @@ def prepare_xql(xql: dict) -> dict:
         "AS": "doc__",
         "FILTERS": {},
         "SORT": None,
-        "SKIP": None,
+        "OFFSET": None,
         "COUNT_AS": None,
-        "TAKE": 10,
+        "LIMIT": 10,
         "PAGE": 1,
         "JOIN": [],
         "RETURN": "doc__",
@@ -281,27 +281,27 @@ def prepare_xql(xql: dict) -> dict:
 def xql_take_skip_page(xql: dict, max_limit=100) -> tuple:
     """
     Returns:
-        type: tuple(TAKE:int, SKIP:int, PAGE:1)
-            - TAKE: limit/per_page
-            - SKIP: offset
+        type: tuple(LIMIT:int, OFFSET:int, PAGE:1)
+            - LIMIT: limit/per_page
+            - OFFSET: offset
             - PAGE: page #
     """
     xql = prepare_xql(xql)
-    SKIP = xql.get("SKIP")
-    TAKE = xql.get("TAKE") or 10
+    OFFSET = xql.get("OFFSET")
+    LIMIT = xql.get("LIMIT") or 10
     PAGE = xql.get("PAGE") or 1
 
-    if SKIP is None:
+    if OFFSET is None:
         page = PAGE or 1
-        per_page = TAKE
+        per_page = LIMIT
         if per_page > max_limit:
             per_page = max_limit
-        SKIP = lib.calc_pagination_offset(page=page, per_page=per_page)
-        TAKE = per_page
-    if TAKE > max_limit:
-        TAKE = max_limit
+        OFFSET = lib.calc_pagination_offset(page=page, per_page=per_page)
+        LIMIT = per_page
+    if LIMIT > max_limit:
+        LIMIT = max_limit
 
-    return TAKE, SKIP, PAGE
+    return LIMIT, OFFSET, PAGE
 
 
 class XQLDEFINITION:
@@ -312,8 +312,8 @@ class XQLDEFINITION:
         :param AS: str = alias
         :param FILTERS: dict = filters
         :param SORT: list/str = sort 
-        :param SKIP: int = the offset of the limit, default=0
-        :param TAKE: int = the limit of result, default=10
+        :param OFFSET: int = the offset of the limit, default=0
+        :param LIMIT: int = the limit of result, default=10
         :param PAGE: int = help calculate the skip by using a page number. 
         :param JOIN: list[XQL]
         :param ON: str = when using join, it links the primary _key 
@@ -328,8 +328,8 @@ class XQLDEFINITION:
     AS: str = None
     FILTERS: dict = {}
     SORT: list = []
-    SKIP: int = 0
-    TAKE: int = 10
+    OFFSET: int = 0
+    LIMIT: int = 10
     PAGE: int = 1
     JOIN: list = []
     ON: str = None
@@ -362,9 +362,9 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         AS: str = alias
         FILTERS: dict = filters
         SORT: list/str = sort 
-        SKIP: int = the offset of the limit, default=0
-        TAKE: int = the limit of result, default=10
-        PAGE: int = help calculate the skip by using a page number. 
+        OFFSET: int = the offset of the limit, default=0
+        LIMIT: int = the limit of result, default=10
+        PAGE: int = help calculate the offset by using a page number. 
         JOIN: list[XQL]
         ON: str = when using join, it links the primary _key 
         COUNT_AS: str =  To count all the document, and return the value. Alias to `COLLECT WITH COUNT INTO`
@@ -391,11 +391,11 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
             AS: c2
             FILTERS:
                 d: "#alias1.d"
-            TAKE: 5
+            LIMIT: 5
             PAGE: 2
             RETURN: c2
-        TAKE: 10
-        SKIP: 2
+        LIMIT: 10
+        OFFSET: 2
         RETURN 
             d
             c2
@@ -410,8 +410,8 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
                 "c:$gt": 5
             },
             "SORT": ["id:desc"],
-            "TAKE": 10,
-            "SKIP": 47,
+            "LIMIT": 10,
+            "OFFSET": 47,
             "JOIN": [
                 {
                     "AS": "app",
@@ -457,8 +457,8 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     COLLECTION = xql.get("FROM")
     FILTERS = xql.get("FILTERS") or {}
     SORTS = xql.get("SORT")
-    SKIP = xql.get("SKIP")
-    TAKE = xql.get("TAKE") or 10
+    OFFSET = xql.get("OFFSET")
+    LIMIT = xql.get("LIMIT") or 10
     PAGE = xql.get("PAGE") or 1
     JOINS = xql.get("JOIN") or []
     COUNT_AS = xql.get("COUNT_AS")
@@ -466,15 +466,15 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     RETURN = xql.get("RETURN") or ALIAS
 
     # work with take/skip
-    if SKIP is None:
+    if OFFSET is None:
         page = PAGE or 1
-        per_page = TAKE
+        per_page = LIMIT
         if per_page > max_limit:
             per_page = max_limit
-        SKIP = lib.calc_pagination_offset(page=page, per_page=per_page)
-        TAKE = per_page
-    if TAKE > max_limit:
-        TAKE = max_limit
+        OFFSET = lib.calc_pagination_offset(page=page, per_page=per_page)
+        LIMIT = per_page
+    if LIMIT > max_limit:
+        LIMIT = max_limit
 
     # unique num to give each field to prevent name collision
     num_ = lib.gen_number(6)
@@ -500,14 +500,14 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     query += aql_filter
     query += subquery
     query += aql_collects
-    query += " LIMIT @skip_%s, @limit_%s " % (num_, num_)
+    query += " LIMIT @offset_%s, @limit_%s " % (num_, num_)
     query += aql_sorting
     query += "RETURN UNSET_RECURSIVE(%s, ['_id', '_rev', '_old_rev'])" % RETURN
 
     bind_vars.update({
         **filter_vars,
-        "skip_%s" % num_: SKIP,
-        "limit_%s" % num_: TAKE,
+        "offset_%s" % num_: OFFSET,
+        "limit_%s" % num_: LIMIT,
         "@collection_%s" % num_: COLLECTION
     })
 

@@ -348,7 +348,7 @@ class _Matcher(object):
 
 class Cursor(object):
 
-    def __init__(self, cursordat: list, sort=None, skip=None, limit=None):
+    def __init__(self, cursordat: list, sort=None, offset=None, limit=None):
         """Initialize the mongo iterable cursor with data"""
         self.cursordat = cursordat or []
         self.cursorpos = -1
@@ -361,7 +361,7 @@ class Cursor(object):
         if sort:
             self.sort(sort)
 
-        self.paginate(skip=skip, limit=limit)
+        self.paginate(offset=offset, limit=limit)
 
     def __getitem__(self, key):
         """Gets record by index or value by key"""
@@ -372,11 +372,11 @@ class Cursor(object):
     def __len__(self):
         return self.count
         
-    def paginate(self, skip=None, limit=None):
+    def paginate(self, offset=None, limit=None):
         """Paginate list of records"""
         if not self.count or not limit:
             return
-        skip = skip or 0
+        offset = offset or 0
         pages = int(ceil(self.count / float(limit)))
         limits = {}
         last = 0
@@ -387,13 +387,13 @@ class Cursor(object):
         # example with count == 62
         # {0: 20, 20: 40, 40: 60, 60: 62}
         if limit and limit < self.count:
-            limit = limits.get(skip, self.count)
-            self.cursordat = self.cursordat[skip: limit]
+            limit = limits.get(offset, self.count)
+            self.cursordat = self.cursordat[offset: limit]
 
         return self
 
-    def limit(self, limit=None, skip=None):
-        self.paginate(limit=limit, skip=skip)
+    def limit(self, limit=None, offset=None):
+        self.paginate(limit=limit, offset=offset)
         return self
 
     def _order(self, value, is_reverse=None):
