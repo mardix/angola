@@ -353,8 +353,8 @@ class Item_Impl(dict):
         oplog = self._update({op: True})
         return oplog.get(op)
 
-    def currdate(self, path:str, value:Any=True):
-        op = "%s:$currdate" % self._make_path(path)
+    def timestamp(self, path:str, value:Any=True):
+        op = "%s:$timestamp" % self._make_path(path)
         oplog = self._update({op: value})
         return oplog.get(op)   
 
@@ -605,7 +605,7 @@ class CollectionItem(Item_Impl):
             self
         """
         if isinstance(nattime, str):
-            self.update({"__ttl:$currdate": nattime})
+            self.update({"__ttl:$timestamp": nattime})
         elif nattime is False:
             self.update({"__ttl": None})
         return self
@@ -823,7 +823,7 @@ class Database(object):
                  password:str=None, 
                  dbname: str = SYSTEM_DB, 
                  client:"Database"= None, 
-                 default_indexes:dict={},
+                 default_indexes:list=[],
                  query_max_limit=100,
                  collection_prefix:str=None,
                  custom_ops:dict={}):
@@ -835,7 +835,7 @@ class Database(object):
             password
             dbname
             client:Database
-            default_indexes:dict
+            default_indexes:list
             query_max_limit
             collection_prefix:str|function - a prefix to add in all collection name
             custom_ops:dict - 
@@ -932,7 +932,26 @@ class Database(object):
         collection_name = self._prefix_collection_name(collection_name)
         return self.db.has_collection(collection_name)
 
-    def select_collection(self, collection_name:str, indexes=None, immut_keys=None, user_defined=True, item_class=None) -> "Collection":
+    def create_collection(self, collection_name:str, indexes:list=[]) -> bool:
+        """
+        Create a collection if not exists
+        Returns: bool
+        """
+        if not self.has_collection(collection_name):
+            collection_name = self._prefix_collection_name(collection_name)
+            col = self.db.create_collection(collection_name)
+
+            # indexes
+            if not indexes:
+                indexes = self.default_indexes
+
+            if indexes and isinstance(indexes, list):
+                for index in [*indexes, *DEFAULT_INDEXES]:
+                    col._add_index(index) 
+            return True 
+        return False
+
+    def select_collection(self, collection_name:str, indexes:list=[], immut_keys:list=[], item_class=None, auto_create:bool=True) -> "Collection":
         """
         To select a collection
 
@@ -940,25 +959,21 @@ class Database(object):
             collection_name:str - collectioin name 
             indexes:List[dict] - the indexes to use
             immut_keys:list - immutable keys. Keys that can't be updated once created
+            auto_create:bool - To auto create the collection if doesn't exist
 
-        Return:
-            Collection
+        Return: Collection
 
         """
 
         if self.has_collection(collection_name):
             collection_name = self._prefix_collection_name(collection_name)
             col = self.db.collection(collection_name)
-        else:
+        elif auto_create is True:
+            self.create_collection(collection_name=collection_name, indexes=indexes)
             collection_name = self._prefix_collection_name(collection_name)
-            col = self.db.create_collection(collection_name)
-            if not indexes and user_defined is True and self.default_indexes:
-                indexes = self.default_indexes
-            
-            # indexes
-            if indexes and isinstance(indexes, list):
-                for index in [*indexes, *DEFAULT_INDEXES]:
-                    col._add_index(index) 
+            col = self.dbcollection(collection_name)
+        else:
+            raise CollectionNotFoundError()
 
         return Collection(db=self, collection=col, immut_keys=immut_keys, custom_ops=self._custom_ops, item_class=item_class)
 
@@ -1258,15 +1273,22 @@ class Collection(object):
         self.collection_name = self.collection.name
         self.item_class = item_class
 
-    def _commit(self, item:CollectionItem):
+    def _commit(self, item:CollectionItem, replace_document=False):
         """
-        Save the item in the db
+        To commit/save changes
+
+        Params:
+            item:CollectionItem
+            replace_document:bool - To replace instead of updating. Replace will not merge the data.
         """
         if not item._key:
             raise MissingItemKeyError()
         try:
-            item.currdate('_modified_at')
-            return self.collection.update(item.to_dict(), return_new=True)["new"]
+            if replace_document:
+                return self.collection.replace(item.to_dict(), return_new=True)["new"]
+            else:
+                item.timestamp('_modified_at')
+                return self.collection.update(item.to_dict(), return_new=True)["new"]
         except DocumentUpdateError as due:
             item.update({"_modified_at": None})
             return self.collection.insert(item.to_dict(), return_new=True)["new"]
@@ -1348,16 +1370,21 @@ class Collection(object):
         self.collection.insert(item.to_dict(), silent=True)
         return self.get(item._key) 
 
-    def update(self, _key:str, data:dict) -> CollectionItem:
+    def update(self, _key:str, data:dict, replace_document=False) -> CollectionItem:
         """
-        Update an item
+        To update and item. Can also replace the item
+
+        Params:
+            _key:str - document key 
+            data:dict - data to update
+            replace_document:bool - If true will replace the document and not merge
 
         Returns
             CollectionItem
 
         """
         item = self.item({**data, "_key": _key})
-        self._commit(item)  
+        self._commit(item, replace_document=replace_document)  
         return self.get(item._key) 
 
     def upsert(self, data:dict) -> CollectionItem:
@@ -1444,7 +1471,7 @@ def _create_document_item(data:dict={}) -> dict:
     return {
         **data,
         "_key": _key,
-        "_created_at:$currdate": True,
+        "_created_at:$timestamp": True,
         "_modified_at": None
     }
 

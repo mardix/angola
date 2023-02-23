@@ -98,7 +98,7 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
         $unset - To remove a property
         $rename - To rename a property
         $copy - To copy the value of property to another one
-        $currdate - gen the current datetime. Can manipulate time
+        $timestamp - gen the current datetime. Can manipulate time
         $template - Evalute the string as template
         $uuid4 - gen a UUID4 string, without the dashes
         $xadd - add item if doesn't exist
@@ -131,8 +131,8 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
            "some.list:$xpop": True,
            "some.list:$xpopl: False,
            "some.value:$xlen": "some.data.path",
-           "some.datetimefield:$currdate": True,             
-           "some.datetimefield:$currdate": "+1Day +2Hours 5Minutes",
+           "some.datetimefield:$timestamp": True,             
+           "some.datetimefield:$timestamp": "+1Day +2Hours 5Minutes",
            "some.key:$template": "Hello {{ name }}!",
            "some.random.id:$uuid4": True             
         }
@@ -219,8 +219,8 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
                 oplog[oplog_path] = v
                 value = _UnOperableValue()
 
-            # $currdate
-            elif op == "currdate":
+            # $timestamp | deprecated => $currdate
+            elif op == "timestamp" or op == "currdate":
                 dt = _get_datetime()
                 if value is True:
                     value = dt
@@ -323,7 +323,7 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
                     if op == "template": 
                         _tpl_data =  {
                             **data,
-                            "CURRDATE": _j2_currdate
+                            "TIMESTAMP": _j2_currdate
                         }              
                         data[path] = lib.render_template(source=value, data=_tpl_data, is_data_flatten=True)
                     

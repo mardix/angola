@@ -49,7 +49,7 @@ def _re_match(pattern, value) -> re:
 
 def _macro_currdate(re_match:re):
     """
-    This macros eval the @@CURRENDATE in the query
+    This macros eval the @@TIMESTAMP in the query
     
     :Params:
         :re_match: regexp match the 
@@ -58,11 +58,11 @@ def _macro_currdate(re_match:re):
 
     Example:
         {
-            "_created_at:$gt": "@@CURRDATE() -5days"
+            "_created_at:$gt": "@@TIMESTAMP() -5days",
         }
 
-    Format: [@@CURRDATE($format) $shifter]
-    Regex: ^\@\@CURRDATE\((.*)\)\s*(.*)$
+    Format: [@@TIMESTAMP($format) $shifter]
+    Regex: ^\@\@TIMESTAMP\((.*)\)\s*(.*)$
 
         match[1] = format
         match[2] = shifter
@@ -77,9 +77,9 @@ def _macro_currdate(re_match:re):
 
 MACROS_DEFS = [
     {
-        # '@@CURRDATE(format=YYYY-MM-DD) shifter=+3Days 4Weeks'
-        "name": "CURRDATE",
-        "pattern": "^\@\@CURRDATE\((.*)\)\s*(.*)$",
+        # '@@TIMESTAMP(format=YYYY-MM-DD) shifter=+3Days 4Weeks'
+        "name": "TIMESTAMP",
+        "pattern": "^\@\@TIMESTAMP\((.*)\)\s*(.*)$",
         "func": _macro_currdate
     }
 ]

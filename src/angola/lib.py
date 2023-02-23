@@ -545,7 +545,7 @@ def calc_pagination_offset(page: int, per_page: int) -> int:
 
 def gen_pagination(size: int, count: int, page: int, per_page: int) -> dict:
     """
-    Create pagination data based on some basic info
+    Create pagination data for pagination components
 
     Args:
         - size:int - The total items
