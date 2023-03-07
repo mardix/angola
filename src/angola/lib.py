@@ -306,7 +306,7 @@ def unflatten_dict(flatten_dict: dict) -> dict:
         path = k.split(".")
         if isinstance(v, list):
             v = [unflatten_dict(i2) if isinstance(i2, dict) else i2 for i2 in v]
-        _set_nested(output, path, v)
+        _set_nested(output, path, v, k)
     return output
 
 
@@ -314,9 +314,12 @@ def _get_nested_default(d, path):
     return reduce(lambda d, k: d.setdefault(k, {}), path, d)
 
 
-def _set_nested(d, path, value):
-    _get_nested_default(d, path[:-1])[path[-1]] = value
-
+def _set_nested(d, path, value, full_path=None):
+    try:
+        _get_nested_default(d, path[:-1])[path[-1]] = value
+    except (AttributeError, TypeError) as e:
+        err = "DataTypeAttributeError: %s --> '%s'" % (e, full_path)
+        raise AttributeError(err)
 
 def dict_pick(ddict: dict, keys: list, check_keys=False) -> dict:
     """
@@ -541,6 +544,17 @@ def calc_pagination_offset(page: int, per_page: int) -> int:
     Returns: int 
     """
     return 0 if page < 1 else (page - 1) * per_page
+
+def calc_pagination_page_from_offset(offset:int, per_page:int) -> int:
+    """
+    To calculate the pagination page having provided an offset and a per_page
+    
+    Args:
+        - offset:int - The offset 
+        - per_page: total items per page
+    Returns: int
+    """
+    return 1 if offset <= 0 else round((offset / per_page))
 
 
 def gen_pagination(size: int, count: int, page: int, per_page: int) -> dict:
