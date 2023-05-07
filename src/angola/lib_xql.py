@@ -24,20 +24,37 @@ AQL_FILTER_OPERATORS = {
     "$GTE": ">=",  # greater than or equal
     "$LT": "<",  # lesser than
     "$LTE": "<=",  # lesser than or equal
-    "$IN": "IN",  # left hand in right hand array -> field.value IN [values]
-    # left hand not in right hand array -> field.value NOT IN [values]
-    "$XIN": "NOT IN",
-    # right hand in left hand array -> values IN [field.value]
-    "$INCLUDES": "IN",
-    # right hand not in left hand array -> values NOT IN [field.value]
-    "$XINCLUDES": "NOT IN",
-    "$LIKE": "LIKE",  # search
-    "$XLIKE": "NOT LIKE"  # ,
 
+
+    # IN + NIN
+    # Test if data in (LEFT:array) contains value on (RIGHT:string|int)
+    # ie: "__subcollections.something[*].value:$xin": "my-value"
+    # --> "my-value" IN __subcollections.something[*].value 
+    "$IN": "IN",
+    "$NIN": "NOT IN",
+
+    # IN + NIN
+    # reverse the order of IN+NIN. Can be translated as `contains`
+    # To test if data in (LEFT:str|int) is in the (RIGHT:array)
+    # ie "city:$in": ["charlotte", "atlanta"]
+    # --> u.city in ["charlotte", "atlanta"]
+    "$XIN": "IN",
+    "$XNIN": "NOT IN",
+
+
+    # LIKE + NOTLIKE
+    # right hand in left hand array -> values IN [field.value]
+    "$LIKE": "LIKE",  # search
+    "$NLIKE": "NOT LIKE",  # 
+    #TODO:
+    # == for case insensitive ==
+    # "$ILIKE": "",
+    # "$NILIKE": ""
 }
 # reverse operator, where the right hand will point to left hand
-# ie: cities:$includes:'charlotte' -> 'charlotte' IN cities
-_rev_ops_order = ['$INCLUDES', '$XINCLUDES']
+# ie: cities:$in: 'charlotte' -> 'charlotte' IN cities
+_rev_ops_order = ['$IN', '$NIN']
+
 
 
 # -----------------------------------------------------------------------------
@@ -262,8 +279,7 @@ def aql_filter_builder(filters: dict, propkey: str) -> tuple:
 def prepare_xql(xql: dict) -> dict:
     _defaults = {
         "FROM": None,
-        "ON": None,
-        "AS": "doc__",
+        "AS": "root__",
         "FILTERS": {},
         "SORT": None,
         "OFFSET": None,
@@ -271,11 +287,14 @@ def prepare_xql(xql: dict) -> dict:
         "LIMIT": 10,
         "PAGE": 1,
         "JOIN": [],
-        "RETURN": "doc__",
+        "RETURN": None,
         "RETURN_WITH": None,
         **xql
     }
-    return {k.upper(): v for k, v in _defaults.items()}
+    r = {k.upper(): v for k, v in _defaults.items()}
+    if r["RETURN"] is None:
+        r["RETURN"] = r["AS"]
+    return r
 
 
 def xql_take_skip_page(xql: dict, max_limit=100) -> tuple:
@@ -316,7 +335,6 @@ class XQLDEFINITION:
         :param LIMIT: int = the limit of result, default=10
         :param PAGE: int = help calculate the skip by using a page number. 
         :param JOIN: list[XQL]
-        :param ON: str = when using join, it links the primary _key 
         :param COUNT_AS: str =  To count all the document, and return the value. Alias to `COLLECT WITH COUNT INTO`
         :param RETURN: str = string representation
         :param MERGE: str = on JOIN, to merge the data.
@@ -332,7 +350,6 @@ class XQLDEFINITION:
     LIMIT: int = 10
     PAGE: int = 1
     JOIN: list = []
-    ON: str = None
     COUNT_AS: str = None
     RETURN: str = None
     MERGE: str = None
@@ -366,13 +383,11 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         LIMIT: int = the limit of result, default=10
         PAGE: int = help calculate the offset by using a page number. 
         JOIN: list[XQL]
-        ON: str = when using join, it links the primary _key 
         COUNT_AS: str =  To count all the document, and return the value. Alias to `COLLECT WITH COUNT INTO`
         RETURN: str = string representation
         MERGE: str = on JOIN, to merge the data.
             ie: MERGE: "{__profile: profile}" 
             Can be done manually with RETURN MERGE(doc, {data})
-
 
         # TODO
         - WHEN: ? = a conditional to evaluate before running
@@ -447,9 +462,9 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     xql = prepare_xql(xql)
 
     if not xql.get("AS"):
-        xql["AS"] = "doc__"
+        xql["AS"] = "root__"
 
-    ALIAS = xql.get("AS") or "doc__"
+    ALIAS = xql.get("AS") or "root__"
 
     if parser:
         xql = parser(xql)
@@ -476,6 +491,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     if LIMIT > max_limit:
         LIMIT = max_limit
 
+
     # unique num to give each field to prevent name collision
     num_ = lib.gen_number(6)
     aql_filter, filter_vars = aql_filter_builder(FILTERS, propkey=ALIAS)
@@ -495,8 +511,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         bind_vars.update(X[1])
 
     # Query
-    query = "FOR {alias} IN @@collection_{num_} ".format(
-        alias=ALIAS, num_=num_)
+    query = "FOR {alias} IN @@collection_{num_} ".format(alias=ALIAS, num_=num_)
     query += aql_filter
     query += subquery
     query += aql_collects
@@ -510,7 +525,6 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         "limit_%s" % num_: LIMIT,
         "@collection_%s" % num_: COLLECTION
     })
-
     return query, bind_vars
 
 

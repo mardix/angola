@@ -14,17 +14,17 @@ DEFAULT_INDEXES = [
     {
         "type": "persistent",
         "fields": ["_created_at"],
-        "name": "idx_created_at__0"
+        "name": "idx00__created_at"
     },
     {
         "type": "persistent",
         "fields": ["_modified_at"],
-        "name": "idx_modified_at__0"
+        "name": "idx00__modified_at"
     },
     {
         "type": "ttl",
         "fields": ["__ttl"],
-        "name": "idx__ttl__0",
+        "name": "idx00__ttl",
         "expireAfter": 0
     }
 ]
@@ -46,13 +46,15 @@ class InvalidItemPathError(AngolaError): pass
 
 #------------------------------------------------------------------------------
 
-class CollectionItemClass(object):
+class CollectionActiveRecordMixin(object):
     """
-    CollectionItemClass
+    CollectionActiveRecordMixin
+
+    An abstraction class to use as an active record on the items
 
     Usage:
 
-      class User(CollectionItemClass):
+      class User(CollectionActiveRecordMixin):
         def full_name(self):
             return "%s %s" % (self.get("first_name), self.get("last_name"))
             
@@ -76,7 +78,16 @@ class CollectionItemClass(object):
     def __getattr__(self, __name: str, *a, **kw):
       return self._item.__getattribute__(__name, *a, **kw)
 
-class QueryResult(object):
+   
+#------------------------------------------------------------------------------
+
+class _QueryResultIterator(object):
+    results:list = []
+    pagination:dict = {}
+    cursor:list = []
+    count:int = 0
+    size:int = 0
+
     def __init__(self, cursor, pager, data_mapper=None):
         self.cursor = cursor
         stats = cursor.statistics()
@@ -90,18 +101,23 @@ class QueryResult(object):
 
         def _default_data_mapper_cb(item): return item 
     
-        self._data_mapper = _default_data_mapper_cb if not data_mapper else data_mapper
+        _data_mapper = _default_data_mapper_cb if not data_mapper else data_mapper
+
+        self.results = [_data_mapper(item) for item in self.cursor]
 
     def __iter__(self):
-        for item in self.cursor:
-            yield self._data_mapper(item)
+        """
+        Iterate over the results
+        """
+        yield from self.results
 
     def __len__(self):
-        """Get the total count """
+        """
+        Get the total results 
+        """
         return self.size
 
-
-class Item_Impl(dict):
+class _ItemMixin(dict):
     NAMESPACE = None
  
     def _make_path(self, path):
@@ -385,7 +401,7 @@ class Item_Impl(dict):
         self._update(data)
         return self
 
-class CollectionItem(Item_Impl):
+class CollectionItem(_ItemMixin):
     """
     CollectionItem
 
@@ -401,11 +417,14 @@ class CollectionItem(Item_Impl):
     # immutable keys
     _immut_keys = []
 
-    @classmethod
-    def new(cls, data:dict, immut_keys:list=[], db=None, collection=None, commiter=None, custom_ops:dict={}):
-      return cls(data=_create_document_item(data), db=db, collection=collection, immut_keys=immut_keys, commiter=commiter, custom_ops=custom_ops)
+    # _read_only. When read_only, it can update 
+    _read_only = False
 
-    def __init__(self, data: dict, db=None, collection=None, immut_keys:list=[], load_parser=None, commiter=None, custom_ops:dict={}):
+    @classmethod
+    def new(cls, data:dict, immut_keys:list=[], db=None, collection=None, commiter=None, custom_ops:dict={}, read_only:bool=False):
+      return cls(data=_create_document_item(data), db=db, collection=collection, immut_keys=immut_keys, commiter=commiter, custom_ops=custom_ops, read_only=read_only)
+
+    def __init__(self, data: dict, db=None, collection=None, immut_keys:list=[], load_parser=None, commiter=None, custom_ops:dict={}, read_only:bool=False):
         if "_key" not in data:
             raise MissingItemKeyError()
         self._db = db
@@ -415,6 +434,7 @@ class CollectionItem(Item_Impl):
         self._immut_keys = immut_keys
         self._cx = False
         self._custom_ops = custom_ops
+        self._read_only = read_only
     
         data, _ = dict_mutator.mutate(mutations=data,  immuts=immut_keys, custom_ops=self._custom_ops)
         self._load(data)
@@ -491,7 +511,7 @@ class CollectionItem(Item_Impl):
         """
         return SubCollection(item=self, name=name, custom_ops=self._custom_ops, constraints=constraints)
 
-    def get_item(self, path:str) -> "SubCollectionItem":
+    def get_item(self, path:str) -> "_SubCollectionItem":
         """
         To get a subcollection item via path
 
@@ -506,7 +526,7 @@ class CollectionItem(Item_Impl):
             db.get_item("collection/_key").get_item("sub_collection/_key")
         
         Returns:
-            SubCollectionItem
+            _SubCollectionItem
 
         """
         
@@ -536,6 +556,10 @@ class CollectionItem(Item_Impl):
 
     def commit(self) -> "Self":
         """ To save """
+
+        if self._read_only:
+            return self
+        
         if not self._commiter:
             raise MissingCommitterCallbackError()
         data = self._commiter(self)
@@ -547,6 +571,10 @@ class CollectionItem(Item_Impl):
         """
         Return oplog
         """
+        
+        if self._read_only:
+            return self
+        
         data = self.to_dict()
         doc, oplog = dict_mutator.mutate(mutations=mutations, init_data=data, immuts=self._immut_keys, custom_ops=self._custom_ops)
         self._load(doc)
@@ -618,171 +646,18 @@ class CollectionItem(Item_Impl):
         self._collection.delete(self._key)
         return True
 
-class SubCollection(object):
-    _data = []
-    _constraints = []
-    _item = None
-    _name = None 
-
-    def __init__(self, item: CollectionItem, name: str, constraints:list=None, custom_ops:dict={}):
-        self._item = item
-        self._name = name
-        self._constraints = constraints
-        self._load()
-        self._custom_ops = custom_ops
-
-    def _load(self):
-        self._data = self._item._subcollections.get(self._name) or []
-
-    def _commit(self):
-        self._item._set_subcollection(self._name, self._data)
-
-    def _save(self, _key, data):
-        _data = self._normalize_data()
-        _data[_key] = data
-        self._data = self._denormalize_data(_data)
-        self._commit()        
-
-    def _normalize_data(self) -> dict:
-        return { d.get("_key"): d for d in self._data}
-
-    def _denormalize_data(self, data:dict) -> list:
-        return list(data.values())
-
-    def __len__(self):
-        return len(self._data)
-
-    def __iter__(self):
-        return iter(self.find())
-
-    @property
-    def items(self):
-        """ 
-        Returns an iterator of all documents
-
-        Returns:
-            Iterator
+    def get_sizeof(self) -> int:
         """
-        return self.find()
+        Get the size of the document
 
-    def has(self, _key):
-        return bool(self.find_one({"_key": _key}))
-
-    def insert(self, data: dict, _key:str=None):
+        Returns: int
         """
-        Insert document
+        return lib.get_sizeof(self.to_dict())
 
-        Params:
-            data:dict
-            _key: to insert with a _key
-        """
-        data, _ = dict_mutator.mutate(mutations=data.copy(), immuts=self._item._immut_keys, custom_ops=self._custom_ops)
-
-        if self._constraints:
-            for c in  self._constraints:
-                if c in data:
-                    if self.find_one({c: data[c]}):
-                        raise ConstraintError("Key: %s" % c)
-
-        if _key or "_key" in data:
-            _key = _key or data["_key"]
-            if self.has(_key):
-                raise ItemExistsError()
-            data["_key"] = _key
-        item = data
-
-        item = _create_document_item(data)
-        self._data.append(item)
-        self._commit()
-        return SubCollectionItem(self, item)
-
-    def update(self, filters:dict, mutations: dict, upsert:bool=False):
-        """
-        Update by filter
-
-        Params:
-            filter:dict - filter document criteria
-            mutations:dict - changes on the found documents
-        """
-        _data = self._normalize_data()
-        res = self.find(filters)
-        if res:
-            for item in res:
-                ts = lib.get_timestamp()
-                _key = item.get("_key")
-                _default = {  # ensuring we do some data can't be overwritten
-                    "_key": _key,
-                    # "_created_at": ts
-                }
-                upd, _ = dict_mutator.mutate(mutations=mutations, init_data=item, immuts=self._item._immut_keys, custom_ops=self._custom_ops)
-                _data[_key] = {**upd, **_default}
-            self._data = self._denormalize_data(_data)
-            self._commit()
-
-        elif upsert:
-            self.insert(mutations)
-  
-
-    def delete(self, filters: dict):
-        """
-        Delete documents based on filters
-
-        Params:
-            filters:dict
-        """
-        _data = self._normalize_data()
-        for item in self.find(filters):
-            del _data[item.get("_key")]
-        self._data = self._denormalize_data(_data)
-        self._commit()
-
-    def get(self, _key:str) -> "SubCollectionItem":
-        """
-        Return a document from subcollection by id 
-
-        Returns: SubCollectionItem
-        """
-        return self.find_one({"_key": _key})
-
-    def find_one(self, filters:dict={}) -> "SubCollectionItem":
-        """
-        Return only one item by criteria
-
-        Return:
-            dict
-        """
-        if res := self.find(filters=filters, limit=1):
-            return list(res)[0]
-        return None 
-
-    def find(self, filters: dict = {}, sorts: dict = {}, limit: int = 10,  offset:int=0) -> dict_query.Cursor:
-        """
-        Perform a query
-
-        Params:
-            filters:
-            sorts:
-            limit:
-            offset:
-        """
-        sorts = _parse_sort_dict(sorts, False)
-        data = [SubCollectionItem(self, d) for d in dict_query.query(data=self._data, filters=filters)]
-        return dict_query.Cursor(data, sort=sorts, limit=limit, offset=offset)
-
-    def filter(self, filters: dict = {}) -> dict_query.Cursor:
-        """
-        Alias to find() but makes it seems fluenty
-        
-        Returns:
-            dict_query:Cursor
-        """
-        data = dict_query.query(data=self._data, filters=filters)
-        return dict_query.Cursor([SubCollectionItem(self, d) for d in data])
-
-class SubCollectionItem(Item_Impl):
+class _SubCollectionItem(_ItemMixin):
     _key = None 
 
-    def __init__(self, subCollection: SubCollection, data):
+    def __init__(self, subCollection: "SubCollection", data):
         self._subcollection = subCollection
         self._load(data)
 
@@ -808,7 +683,8 @@ class SubCollectionItem(Item_Impl):
     def delete(self):
         self._subcollection.delete({"_key": self._key})
         return True
-        
+     
+#------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
 class Database(object):
@@ -941,13 +817,13 @@ class Database(object):
             collection_name = self._prefix_collection_name(collection_name)
             col = self.db.create_collection(collection_name)
 
-            # indexes
-            if not indexes:
-                indexes = self.default_indexes
+            _indexes = DEFAULT_INDEXES
+            if not indexes and self.default_indexes:
+                _indexes = [*self.default_indexes, *_indexes]
 
-            if indexes and isinstance(indexes, list):
-                for index in [*indexes, *DEFAULT_INDEXES]:
-                    col._add_index(index) 
+            for index in _indexes:
+                col._add_index(index) 
+                
             return True 
         return False
 
@@ -971,7 +847,7 @@ class Database(object):
         elif auto_create is True:
             self.create_collection(collection_name=collection_name, indexes=indexes)
             collection_name = self._prefix_collection_name(collection_name)
-            col = self.dbcollection(collection_name)
+            col = self.db.collection(collection_name)
         else:
             raise CollectionNotFoundError()
 
@@ -1032,9 +908,11 @@ class Database(object):
             bind_vars: dict - the variables to pass in the query
         Return aql cursor
         """
+        print("AQL", query, bind_vars)
+        print()
         return self.aql.execute(query=query, bind_vars=bind_vars, *a, **kw)
 
-    def query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None, data_mapper=None) -> QueryResult:
+    def query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None, data_mapper=None) -> _QueryResultIterator:
         """
         XQL query  a collection based on filters
 
@@ -1046,12 +924,12 @@ class Database(object):
             kvmap:dict
             data_mapper:function - a callback function
         Returns
-            QueryResult
+            _QueryResultIterator
         """
 
         aql, bind_vars, pager = self._build_query(xql=xql, data=data, kvmap=kvmap, parser=parser)
         cursor = self.execute_aql(aql, bind_vars=bind_vars, count=True, full_count=True)            
-        return QueryResult(cursor=cursor, pager=pager, data_mapper=data_mapper)
+        return _QueryResultIterator(cursor=cursor, pager=pager, data_mapper=data_mapper)
 
     def _build_query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None):
         """
@@ -1296,7 +1174,7 @@ class Collection(object):
     def __iter__(self):
         return self.find(filters={})
 
-    def item(self, data:dict) -> CollectionItem:
+    def item(self, data:dict, read_only:bool=False) -> CollectionItem:
         """
         Load data as item
 
@@ -1307,7 +1185,7 @@ class Collection(object):
         if not isinstance(data, CollectionItem) and "_key" not in data:
             item = CollectionItem.new(data, db=self.db, collection=self.collection, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)               
         else:
-            item = CollectionItem(data, db=self.db, collection=self.collection, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops)
+            item = CollectionItem(data, db=self.db, collection=self.collection, commiter=self._commit, immut_keys=self._immut_keys, custom_ops=self._custom_ops, read_only=read_only)
 
         return self.item_class(item) if item and self.item_class else item
 
@@ -1410,7 +1288,7 @@ class Collection(object):
         """
         self.collection.delete(_key)
 
-    def find(self, filters:dict={}, offset=None, limit=10, sort=None, page=None):
+    def find(self, filters:dict={}, offset=None, limit=10, sort=None, page=None, xql:dict=None):
         """
         Perform a find in the collections
 
@@ -1418,20 +1296,31 @@ class Collection(object):
             Generator[CollectionItem]
         """
         
+        if page is None and offset:
+            page = lib.calc_pagination_page_from_offset(offset=offset, per_page=limit)
 
-        if offset is None and page:
+        elif offset is None and page:
             offset = lib.calc_pagination_offset(page=page, per_page=limit)
 
-        xql = {
+        read_only = False
+        _xql = {
             "FROM": self.collection_name, 
             "FILTERS": filters,
             "OFFSET": offset,
             "LIMIT": limit,
-            "SORT": sort
+            "SORT": sort,
+            "PAGE": page
         }
 
-        def data_mapper(item): return self.item(item)
-        return self.db.query(xql, data_mapper=data_mapper)
+        # Extended XQL
+        if xql:
+            _xql.update(xql)
+            if "JOIN" in _xql:
+                read_only = True
+
+
+        def data_mapper(item): return self.item(item, read_only=read_only)
+        return self.db.query(_xql, data_mapper=data_mapper)
 
     def find_one(self, filters:dict, sort=None):
         """
@@ -1460,6 +1349,173 @@ class Collection(object):
         name = "%s--%s" % (self.collection_name, collection.collection_name)
         return (name, edge_name, self.collection_name, collection.collection_name)
 
+
+class SubCollection(object):
+    _data = []
+    _constraints = []
+    _item = None
+    _name = None 
+
+    def __init__(self, item: CollectionItem, name: str, constraints:list=None, custom_ops:dict={}):
+        self._item = item
+        self._name = name
+        self._constraints = constraints
+        self._load()
+        self._custom_ops = custom_ops
+
+    def _load(self):
+        self._data = self._item._subcollections.get(self._name) or []
+
+    def _commit(self):
+        self._item._set_subcollection(self._name, self._data)
+
+    def _save(self, _key, data):
+        _data = self._normalize_data()
+        _data[_key] = data
+        self._data = self._denormalize_data(_data)
+        self._commit()        
+
+    def _normalize_data(self) -> dict:
+        return { d.get("_key"): d for d in self._data}
+
+    def _denormalize_data(self, data:dict) -> list:
+        return list(data.values())
+
+    def __len__(self):
+        return len(self._data)
+
+    def __iter__(self):
+        return iter(self.find())
+
+    @property
+    def items(self):
+        """ 
+        Returns an iterator of all documents
+
+        Returns:
+            Iterator
+        """
+        return self.find()
+
+    def has(self, _key):
+        return bool(self.find_one({"_key": _key}))
+
+    def insert(self, data: dict, _key:str=None):
+        """
+        Insert document
+
+        Params:
+            data:dict
+            _key: to insert with a _key
+        """
+        data, _ = dict_mutator.mutate(mutations=data.copy(), immuts=self._item._immut_keys, custom_ops=self._custom_ops)
+
+        if self._constraints:
+            for c in  self._constraints:
+                if c in data:
+                    if self.find_one({c: data[c]}):
+                        raise ConstraintError("Key: %s" % c)
+
+        if _key or "_key" in data:
+            _key = _key or data["_key"]
+            if self.has(_key):
+                raise ItemExistsError()
+            data["_key"] = _key
+        item = data
+
+        item = _create_subdocument_item(data)
+        self._data.append(item)
+        self._commit()
+        return _SubCollectionItem(self, item)
+
+    def update(self, filters:dict, mutations: dict, upsert:bool=False):
+        """
+        Update by filter
+
+        Params:
+            filter:dict - filter document criteria
+            mutations:dict - changes on the found documents
+        """
+        _data = self._normalize_data()
+        res = self.find(filters)
+        if res:
+            for item in res:
+                ts = lib.get_timestamp()
+                _key = item.get("_key")
+                _default = {  # ensuring we do some data can't be overwritten
+                    "_key": _key,
+                    # "_created_at": ts
+                }
+                upd, _ = dict_mutator.mutate(mutations=mutations, init_data=item, immuts=self._item._immut_keys, custom_ops=self._custom_ops)
+                _data[_key] = {**upd, **_default}
+            self._data = self._denormalize_data(_data)
+            self._commit()
+
+        elif upsert:
+            self.insert(mutations)
+  
+
+    def delete(self, filters: dict):
+        """
+        Delete documents based on filters
+
+        Params:
+            filters:dict
+        """
+        _data = self._normalize_data()
+        for item in self.find(filters):
+            del _data[item.get("_key")]
+        self._data = self._denormalize_data(_data)
+        self._commit()
+
+    def get(self, _key:str) -> "_SubCollectionItem":
+        """
+        Return a document from subcollection by id 
+
+        Returns: _SubCollectionItem
+        """
+        return self.find_one({"_key": _key})
+
+    def find_one(self, filters:dict={}) -> "_SubCollectionItem":
+        """
+        Return only one item by criteria
+
+        Return:
+            dict
+        """
+        if res := self.find(filters=filters, limit=1):
+            return list(res)[0]
+        return None 
+
+    def find(self, filters: dict = {}, sort: dict = {}, limit: int = 10,  offset:int=0, page=None) -> dict_query.Cursor:
+        """
+        Perform a query
+
+        Params:
+            filters:
+            sort:
+            limit:
+            offset:
+        """
+
+        if offset is None and page:
+            offset = lib.calc_pagination_offset(page=page, per_page=limit)
+
+        sort = _parse_sort_dict(sort, False)
+        data = [_SubCollectionItem(self, d) for d in dict_query.query(data=self._data, filters=filters)]
+        return dict_query.Cursor(data, sort=sort, limit=limit, offset=offset)
+
+    def filter(self, filters: dict = {}) -> dict_query.Cursor:
+        """
+        Alias to find() but makes it seems fluenty
+        
+        Returns:
+            dict_query:Cursor
+        """
+        data = dict_query.query(data=self._data, filters=filters)
+        return dict_query.Cursor([_SubCollectionItem(self, d) for d in data])
+
+
 #------------------------------------------------------------------------------
 
 def _create_edge_name(from_name, to_name):
@@ -1469,12 +1525,22 @@ def _create_document_item(data:dict={}) -> dict:
     _key = data["_key"] if "_key" in data else lib.gen_key()
 
     return {
-        **data,
         "_key": _key,
         "_created_at:$timestamp": True,
-        "_modified_at": None
+        "_modified_at": None,
+        "__ttl": None,
+        **data,
     }
 
+def _create_subdocument_item(data:dict={}) -> dict:
+    _key = data["_key"] if "_key" in data else lib.gen_key()
+
+    return {
+        "_key": _key,
+        "_created_at:$timestamp": True,
+        "_modified_at": None,
+        **data,
+    }
 
 def _ascdesc(v, as_str=True):
     if as_str:
@@ -1486,6 +1552,6 @@ def _ascdesc(v, as_str=True):
     return v
 
 
-def _parse_sort_dict(sorts: dict, as_str=True):
-    return [(k, _ascdesc(v, as_str)) for k, v in sorts.items()]
+def _parse_sort_dict(sort: dict, as_str=True):
+    return [(k, _ascdesc(v, as_str)) for k, v in sort.items()]
 

@@ -23,6 +23,25 @@ from operator import itemgetter
 from typing import Iterator, Any
 
 
+
+def get_sizeof(obj:Any) -> int:
+    """
+    Get the memory size of the object in byte.
+
+    Note: make use of `sys.getsizeof` to get the size in memory. Do not use `len`
+
+    Example: 
+        get_sizeof('hello') -> 56
+        get_sizeof({'name': 'awesome'}) -> 68
+        get_sizeof(12) -> 51
+        get_size(json.loads($json_string)) -> $x
+        
+    Return: int 
+    """
+    return sys.getsizeof(json_dumps(obj))
+
+
+
 def collection_name_valid(name):
     """
     Valid a collection name 
@@ -180,35 +199,6 @@ def get_timestamp() -> int:
     return round(datetime.datetime.utcnow().timestamp())
 
 
-
-# === JSON 
-
-def _json_serialize(o):
-    return timestamp_to_str(o)
-
-def _json_deserialize(json_dict):
-    for k, v in json_dict.items():
-        if isinstance(v, str) and timestamp_valid(v):
-            json_dict[k] = arrow.get(v)
-    return json_dict
-
-def timestamp_to_str(dt) -> str:
-    if isinstance(dt, arrow.Arrow):
-        return dt.for_json()
-    elif isinstance(dt, (datetime.date, datetime.datetime)):
-        return dt.isoformat()
-    return dt
-
-
-def timestamp_valid(dt_str) -> bool:
-    try:
-        datetime.datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
-    except:
-        return False
-    return True
-
-
-
 # ----------------------
 # json_ext
 
@@ -318,7 +308,7 @@ def _set_nested(d, path, value, full_path=None):
     try:
         _get_nested_default(d, path[:-1])[path[-1]] = value
     except (AttributeError, TypeError) as e:
-        err = "DataTypeAttributeError: %s --> '%s'" % (e, full_path)
+        err = "DataTypeAttributeError: %s at '%s'" % (e, full_path)
         raise AttributeError(err)
 
 def dict_pick(ddict: dict, keys: list, check_keys=False) -> dict:
