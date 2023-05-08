@@ -908,8 +908,6 @@ class Database(object):
             bind_vars: dict - the variables to pass in the query
         Return aql cursor
         """
-        print("AQL", query, bind_vars)
-        print()
         return self.aql.execute(query=query, bind_vars=bind_vars, *a, **kw)
 
     def query(self, xql:lib_xql.XQLDEFINITION, data:dict={}, kvmap:dict={}, parser=None, data_mapper=None) -> _QueryResultIterator:
