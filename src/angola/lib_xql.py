@@ -279,7 +279,7 @@ def aql_filter_builder(filters: dict, propkey: str) -> tuple:
 def prepare_xql(xql: dict) -> dict:
     _defaults = {
         "FROM": None,
-        "AS": "root__",
+        "ALIAS": "root__",
         "FILTERS": {},
         "SORT": None,
         "OFFSET": None,
@@ -293,7 +293,7 @@ def prepare_xql(xql: dict) -> dict:
     }
     r = {k.upper(): v for k, v in _defaults.items()}
     if r["RETURN"] is None:
-        r["RETURN"] = r["AS"]
+        r["RETURN"] = r["ALIAS"]
     return r
 
 
@@ -328,7 +328,7 @@ class XQLDEFINITION:
     XQL Schema Definition:
 
         :param FROM: str = the collection name
-        :param AS: str = alias
+        :param ALIAS: str = alias
         :param FILTERS: dict = filters
         :param SORT: list/str = sort 
         :param OFFSET: int = the offset of the limit, default=0
@@ -343,7 +343,7 @@ class XQLDEFINITION:
 
     """
     FROM: str = None
-    AS: str = None
+    ALIAS: str = None
     FILTERS: dict = {}
     SORT: list = []
     OFFSET: int = 0
@@ -376,7 +376,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     ===
     XQL Schema Definition:
         FROM: str = the collection name
-        AS: str = alias
+        ALIAS: str = alias
         FILTERS: dict = filters
         SORT: list/str = sort 
         OFFSET: int = the offset of the limit, default=0
@@ -396,14 +396,14 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     === 
     schema example:
         FROM: collection
-        AS: alias1
+        ALIAS: alias1
         FILTERS:
             x:y
             "z:$gt": 5
         SORT: name:desc
         JOIN:
             FROM: collection2
-            AS: c2
+            ALIAS: c2
             FILTERS:
                 d: "#alias1.d"
             LIMIT: 5
@@ -419,7 +419,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
         === code example
         q = {
             "FROM": "job_posts",
-            "AS": "post",
+            "ALIAS": "post",
             "FILTERS": {
                 "a": "b",
                 "c:$gt": 5
@@ -429,7 +429,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
             "OFFSET": 47,
             "JOIN": [
                 {
-                    "AS": "app",
+                    "ALIAS": "app",
                     "FROM": "application",
                     "FILTERS": {
                         "a": "b",
@@ -437,7 +437,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
                         "d": "#job.v_d"
                     },
                     "JOIN": [        {
-                        "AS": "J_loco",
+                        "ALIAS": "J_loco",
                         "FROM": "bam",
                         "FILTERS": {
                             "a": "b",
@@ -448,7 +448,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
                 },
                 {
                     "FROM": "loco",
-                    "AS": "bam",
+                    "ALIAS": "bam",
                     "FILTERS": {
                         "a": "b",
                         "c": "d",
@@ -461,10 +461,10 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
 
     xql = prepare_xql(xql)
 
-    if not xql.get("AS"):
-        xql["AS"] = "root__"
+    if not xql.get("ALIAS"):
+        xql["ALIAS"] = "root__"
 
-    ALIAS = xql.get("AS") or "root__"
+    ALIAS = xql.get("ALIAS") or "root__"
 
     if parser:
         xql = parser(xql)
@@ -507,7 +507,7 @@ def xql_to_aql(xql: dict, vars: dict = {}, max_limit=100, parser=None):
     for xql2 in JOINS:
         xql2 = prepare_xql(xql2)
         X = xql_to_aql(xql=xql2, parser=parser, max_limit=max_limit)
-        subquery += "\nLET %s = (%s) \n" % (xql2.get("AS"), X[0])
+        subquery += "\nLET %s = (%s) \n" % (xql2.get("ALIAS"), X[0])
         bind_vars.update(X[1])
 
     # Query
