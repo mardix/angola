@@ -98,9 +98,9 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
         $unset - To remove a property
         $rename - To rename a property
         $copy - To copy the value of property to another one
-        $timestamp - gen the current datetime. Can manipulate time
+        $datetime - gen the current datetime. Can manipulate time
         $template - Evalute the string as template
-        $uuid4 - gen a UUID4 string, without the dashes
+        $uuid4 - gen a UUID4 string, with the dashes
         $xadd - add item if doesn't exist
         $xadd_many - add many items in the list if not already in the list
         $xrem - remove item
@@ -131,8 +131,8 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
            "some.list:$xpop": True,
            "some.list:$xpopl: False,
            "some.value:$xlen": "some.data.path",
-           "some.datetimefield:$timestamp": True,             
-           "some.datetimefield:$timestamp": "+1Day +2Hours 5Minutes",
+           "some.datetimefield:$datetime": True,             
+           "some.datetimefield:$datetime": "+1Day +2Hours 5Minutes",
            "some.key:$template": "Hello {{ name }}!",
            "some.random.id:$uuid4": True             
         }
@@ -219,8 +219,8 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
                 oplog[oplog_path] = v
                 value = _UnOperableValue()
 
-            # $timestamp | deprecated => $currdate
-            elif op == "timestamp" or op == "currdate":
+            # $datetime 
+            elif op in ["datetime", "timestamp", "currdate"]:
                 dt = _get_datetime()
                 if value is True:
                     value = dt
@@ -235,7 +235,7 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
 
             # $uuid4
             elif op == "uuid4":
-                value = str(uuid.uuid4()).replace("-", "")
+                value = str(uuid.uuid4())#.replace("-", "")
 
 
             # LIST operators
@@ -323,7 +323,8 @@ def _mutate(mutations:_FlattenDictType, init_data:_FlattenDictType={}, immuts:li
                     if op == "template": 
                         _tpl_data =  {
                             **data,
-                            "TIMESTAMP": _j2_currdate
+                            "TIMESTAMP": _j2_currdate,
+                            "DATETIME": _j2_currdate
                         }              
                         data[path] = lib.render_template(source=value, data=_tpl_data, is_data_flatten=True)
                     

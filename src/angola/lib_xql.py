@@ -25,21 +25,20 @@ AQL_FILTER_OPERATORS = {
     "$LT": "<",  # lesser than
     "$LTE": "<=",  # lesser than or equal
 
-
-    # IN + NIN
-    # Test if data in (LEFT:array) contains value on (RIGHT:string|int)
-    # ie: "__subcollections.something[*].value:$xin": "my-value"
+    # INCLUDES + XINCLUDES
+    # Test if data in RIGHT(string|int) is in data in LEFT(array)
+    # ie: "__subcollections.something[*].value:$INCLUDES": "my-value"
     # --> "my-value" IN __subcollections.something[*].value 
-    "$IN": "IN",
-    "$NIN": "NOT IN",
+    "$INCLUDES": "IN",
+    "$XINCLUDES": "NOT IN",
 
     # IN + NIN
-    # reverse the order of IN+NIN. Can be translated as `contains`
+    # reverse the order of INCLUDES
     # To test if data in (LEFT:str|int) is in the (RIGHT:array)
-    # ie "city:$in": ["charlotte", "atlanta"]
-    # --> u.city in ["charlotte", "atlanta"]
-    "$XIN": "IN",
-    "$XNIN": "NOT IN",
+    # ie "city:$IN": ["charlotte", "atlanta"]
+    # --> u.city IN ["charlotte", "atlanta"]
+    "$IN": "IN",
+    "$XIN": "NOT IN",
 
 
     # LIKE + NOTLIKE
@@ -52,8 +51,8 @@ AQL_FILTER_OPERATORS = {
     # "$NILIKE": ""
 }
 # reverse operator, where the right hand will point to left hand
-# ie: cities:$in: 'charlotte' -> 'charlotte' IN cities
-_rev_ops_order = ['$IN', '$NIN']
+# ie: cities:$INCLUDES: 'charlotte' -> 'charlotte' IN cities
+_rev_ops_order = ['$INCLUDES', '$XINCLUDES']
 
 
 
@@ -64,28 +63,33 @@ def _re_match(pattern, value) -> re:
     return re.match(pattern, value, flags=re.IGNORECASE)
 
 
-def _macro_currdate(re_match:re):
+def _macro_now(re_match:re):
     """
-    This macros eval the @@TIMESTAMP in the query
+    This macro eval the NOW|DATETIME in the query
     
     :Params:
         :re_match: regexp match the 
 
     Regex: 
 
+
     Example:
         {
-            "_created_at:$gt": "@@TIMESTAMP() -5days",
+            "_created_at:$gt": "[[@MACRO:NOW, -3hours]]",
         }
 
-    Format: [@@TIMESTAMP($format) $shifter]
-    Regex: ^\@\@TIMESTAMP\((.*)\)\s*(.*)$
-
-        match[1] = format
-        match[2] = shifter
+    Format: [[@MACRO:NOW, shifter, format]]
+    Regex: "^\[\[\@MACRO:NOW\s*,?\s*(.*)]]$",
+        re_match[1]
     """
-    dt_format = re_match[1] or "YYYY-MM-DD"
-    shifter = re_match[2]
+
+    dt_format = "YYYY-MM-DD"
+    shifter = re_match[1]
+    if "," in shifter:
+        shifter, dt_format = shifter.split(",", 1)
+        shifter = shifter.strip()
+        dt_format = dt_format.strip()
+
     now = lib.get_datetime()
     if shifter:
         now = lib.arrow_date_shifter(now, shifter)
@@ -94,10 +98,10 @@ def _macro_currdate(re_match:re):
 
 MACROS_DEFS = [
     {
-        # '@@TIMESTAMP(format=YYYY-MM-DD) shifter=+3Days 4Weeks'
-        "name": "TIMESTAMP",
-        "pattern": "^\@\@TIMESTAMP\((.*)\)\s*(.*)$",
-        "func": _macro_currdate
+        # [[@MACRO:NOW, +2Days, YYYY-MM-DD HH:mm:ss]]
+        "name": "NOW",
+        "pattern": "^\[\[\@MACRO:NOW\s*,?\s*(.*)]]$",
+        "func": _macro_now
     }
 ]
 
@@ -107,13 +111,7 @@ def eval_macros(value):
         if isinstance(value, str) and (m := _re_match(item.get("pattern"), value)):
             return item.get("func")(m)
         elif isinstance(value, list):
-            vs = []
-            for v in value:
-                if m := _re_match(item.get("pattern"), v):
-                    vs.append(item.get("func")(m))
-                else:
-                    vs.append(v)
-            return vs
+            return [eval_macros(v) for v in value]
     return value
 
 # -----------------------------------------------------------------------------
